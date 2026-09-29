@@ -77,6 +77,15 @@ bash "$(dirname "$0")/verify-save-action.sh" "$installed_app" deb
 bash "$(dirname "$0")/verify-composition.sh" "$installed_app" full
 ldid -e "$installed_app/Fila" >"$payload_root/icon-entitlements.plist"
 python3 "$(dirname "$0")/verify-icon-entitlements.py" "$payload_root/icon-entitlements.plist"
+# The floor in Base.xcconfig is a claim the SDK does not check: a library, a
+# build version or a Swift runtime symbol newer than it builds cleanly and
+# dies in dyld before `main` on the old device. Every image the package
+# ships — the app with its frameworks and extension, the daemon, the helper.
+floor="$(awk -F= '$1 ~ /^[[:space:]]*IPHONEOS_DEPLOYMENT_TARGET[[:space:]]*$/ { gsub(/[[:space:]]/, "", $2); print $2; exit }' \
+    "$(dirname "$0")/../Configuration/Base.xcconfig")"
+[[ "$floor" =~ ^[0-9]+\.[0-9]+$ ]] || { echo "error: no IPHONEOS_DEPLOYMENT_TARGET in Configuration/Base.xcconfig" >&2; exit 65; }
+bash "$(dirname "$0")/audit-ios-floor.sh" "$floor" \
+    "$installed_app" "$installed_root/usr/libexec/filad" "$installed_root/usr/libexec/fila-archive"
 
 expect "LaunchDaemon program" \
     "$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$installed_launchd")" \

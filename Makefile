@@ -79,6 +79,7 @@ LOCALIZATION_CHECK  := $(ROOT_DIR)/Scripts/check-localization.sh
 STALE_STRINGS       := $(ROOT_DIR)/Scripts/remove-stale-strings.py
 EXTRACTED_STRINGS   := $(ROOT_DIR)/Scripts/check-extracted-strings.py
 ACCESSIBILITY_CHECK := $(ROOT_DIR)/Scripts/check-accessibility.py
+FLOOR_AUDIT         := $(ROOT_DIR)/Scripts/audit-ios-floor.sh
 WEBUI_BUILDER       := $(ROOT_DIR)/Scripts/build-webui.sh
 
 # Every Swift source this repo writes: the two app compositions, the shared
@@ -201,7 +202,7 @@ check:
 	@test -f "$(CONTROL_TEMPLATE)" || { echo "error: Debian control template is missing" >&2; exit 66; }
 	@command -v zip >/dev/null || { echo "error: zip is required" >&2; exit 69; }
 	@test -f "$(PACKAGE_DIR)/Package.swift" || { echo "error: Packages/FilaKit/Package.swift is missing" >&2; exit 66; }
-	@for script in "$(DEB_PACKAGER)" "$(DEB_VERIFIER)" "$(IPA_PACKAGER)" "$(IPA_VERIFIER)" "$(VERSION_APPLIER)" "$(XCODEBUILD_WRAPPER)" "$(DEVICE_INSTALLER)" "$(UI_LIBRARY_CHECK)" "$(LOCALIZATION_CHECK)" "$(STALE_STRINGS)" "$(ACCESSIBILITY_CHECK)" "$(WEBUI_BUILDER)"; do \
+	@for script in "$(DEB_PACKAGER)" "$(DEB_VERIFIER)" "$(IPA_PACKAGER)" "$(IPA_VERIFIER)" "$(VERSION_APPLIER)" "$(XCODEBUILD_WRAPPER)" "$(DEVICE_INSTALLER)" "$(UI_LIBRARY_CHECK)" "$(LOCALIZATION_CHECK)" "$(STALE_STRINGS)" "$(ACCESSIBILITY_CHECK)" "$(WEBUI_BUILDER)" "$(FLOOR_AUDIT)"; do \
 		test -x "$$script" || { echo "error: $$script is not executable" >&2; exit 66; }; \
 	done
 	@for xcconfig in Version Base Development Release; do \

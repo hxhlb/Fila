@@ -109,5 +109,11 @@ if [[ "$kind" == tipa ]]; then
 else
     bash "$(dirname "$0")/verify-composition.sh" "$app" sandboxed
 fi
+# The same floor audit as the .deb, over the app, its frameworks and its
+# extension: the SDK builds what the floor cannot launch without a word.
+floor="$(awk -F= '$1 ~ /^[[:space:]]*IPHONEOS_DEPLOYMENT_TARGET[[:space:]]*$/ { gsub(/[[:space:]]/, "", $2); print $2; exit }' \
+    "$(dirname "$0")/../Configuration/Base.xcconfig")"
+[[ "$floor" =~ ^[0-9]+\.[0-9]+$ ]] || fail "no IPHONEOS_DEPLOYMENT_TARGET in Configuration/Base.xcconfig"
+bash "$(dirname "$0")/audit-ios-floor.sh" "$floor" "$app"
 
 echo "Verified $(basename "$archive") ($kind, $(du -h "$archive" | awk '{print $1}'))"

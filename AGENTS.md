@@ -127,10 +127,24 @@ between the app and the kernel with nothing in between.
   `UIImage(systemName:)` returns nil and the control draws nothing. `make check`
   warns on the first (only below iOS 16; a raised floor is entitled to the
   overlay) and fails on the second, against CoreGlyphs' own availability table.
-  Before a release, prove the product with `otool -L | grep -v ', weak)'`,
-  `nm -m | grep 'weak external'` and `vtool -show-build` on every embedded
-  framework — the same audit lives in
-  `../platformize-app-ios/scripts/audit-ios-floor.sh`.
+  *Three*, in Irisin 4.5.11 on iOS 26.6.2: `Symbol not found:
+  _swift_initBorrow`, expected in `libswiftCore.dylib`. swift-collections
+  1.7.0 built with Xcode 27 imports that iOS 27 runtime entry point strongly;
+  the library is on the old device and the symbol is not. Fila resolves
+  swift-collections through swift-nio (`from: "1.1.0"`) at 1.6.0, which does
+  not, and nothing here pins it: an update can move it.
+  `Scripts/audit-ios-floor.sh`, copied verbatim from
+  `../platformize-app-ios/scripts/`, is the proof, and both verifiers run it
+  over every image they unpack — the app with its frameworks and extension,
+  `filad`, `fila-archive` — at the floor read from `Base.xcconfig`, so no
+  package is published that fails it: late overlays linked non-weakly, a
+  `minos` above the floor, and a Swift runtime symbol newer than the floor
+  (its own list, then every import from `/usr/lib/swift` against the oldest
+  installed iOS simulator runtime at or above the floor that still keeps its
+  libraries as files). Fix it in the template and copy it again; a local edit
+  is a fork. A bump of anything that follows the standard library closely
+  is proven by launching the packaged Release build on a device below the
+  newest iOS, not by building it.
 - **Versions live in `Configuration/Version.xcconfig` only** (edit via
   `make set-version`). xcconfigs attach at project level; a target-level
   `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` in the pbxproj silently
@@ -579,7 +593,9 @@ sentence. The same script fails on a missing or `""` message.
 - `make deb` — build, ad-hoc sign with ldid, package for `FLAVOR` (default
   `roothide`, `iphoneos-arm64e`, rootful paths; `FLAVOR=rootless` packages the
   same binaries under `/var/jb` as `iphoneos-arm64`), then verify the archive
-  with `Scripts/verify-deb.sh`. `make deb-all` builds both.
+  with `Scripts/verify-deb.sh`, which runs `Scripts/audit-ios-floor.sh`
+  over every Mach-O in it (`verify-ipa.sh` does the same for both archives).
+  `make deb-all` builds both.
   Path helper: `make print-deb-path [FLAVOR=rootless]`.
 - `make tipa` / `make ipa` — the app alone, no `filad`, packaged as
   `Payload/Fila.app` by `Scripts/package-ipa.sh` and checked by

@@ -645,6 +645,109 @@ struct ArTests {
     }
 }
 
+/// `fila-archive` is spawned with an empty environment, so it runs in the C
+/// locale, and libarchive converts every name through the calling thread's
+/// `LC_CTYPE`. Without `withArchiveLocale` a UTF-8 name comes back NULL (PAX,
+/// the ZIP UTF-8 flag) or damaged, and a writer refuses it. Each test pins its
+/// own thread to C rather than trusting the test runner's environment.
+@Suite("Names under the C locale")
+struct ArchiveLocaleTests {
+    private static let name = "What’s New 中文.html"
+
+    @Test
+    func `A zip entry flagged UTF-8 lists by its name`() throws {
+        try withScratch { scratch in
+            let archive = scratch.appendingPathComponent("flagged.zip")
+            try Self.flaggedZip(named: Self.name).write(to: archive)
+            try inCLocale {
+                let entries = try withDescriptor(reading: archive) { try ArchiveReader.list(descriptor: $0) }
+                #expect(entries.map(\.declaredPath) == [Self.name])
+                #expect(entries.first?.relativePath == Self.name)
+            }
+        }
+    }
+
+    @Test(arguments: [ArchiveFormat.zip, .tar])
+    func `A UTF-8 name and link target are written and read back`(format: ArchiveFormat) throws {
+        try withScratch { scratch in
+            let archive = scratch.appendingPathComponent("names." + format.filenameExtension)
+            let folder = "文件夹"
+            try inCLocale {
+                try withDescriptor(writing: archive) { descriptor in
+                    let writer = try ArchiveWriter(descriptor: descriptor, format: format)
+                    try writer.addDirectory(folder)
+                    try writer.addData(folder + "/" + Self.name, Data("hello".utf8))
+                    try writer.addSymbolicLink("链接", target: folder + "/" + Self.name)
+                    try writer.finish()
+                }
+            }
+            if format == .zip {
+                // General purpose flag bit 11 of the first local header.
+                let bytes = try Data(contentsOf: archive)
+                #expect(bytes[7] & 0x08 != 0)
+            }
+            try inCLocale {
+                try withDescriptor(reading: archive) { descriptor in
+                    let reader = try ArchiveReader(descriptor: descriptor)
+                    #expect(try reader.next()?.relativePath == folder)
+                    #expect(try reader.next()?.relativePath == folder + "/" + Self.name)
+                    #expect(try String(decoding: reader.data(), as: UTF8.self) == "hello")
+                    let link = try #require(try reader.next())
+                    #expect(link.relativePath == "链接")
+                    #expect(link.linkTarget == folder + "/" + Self.name)
+                    #expect(try reader.next() == nil)
+                }
+            }
+        }
+    }
+
+    @Test
+    func `The caller's locale is back after a call that throws`() throws {
+        try withScratch { scratch in
+            let text = scratch.appendingPathComponent("plain.txt")
+            try Data("not an archive".utf8).write(to: text)
+            try inCLocale { c in
+                try withDescriptor(reading: text) { descriptor in
+                    let reader = try ArchiveReader(descriptor: descriptor)
+                    #expect(uselocale(nil) == c)
+                    #expect(throws: FormatFailure.self) { try reader.next() }
+                }
+                #expect(uselocale(nil) == c)
+            }
+        }
+    }
+
+    private func inCLocale<T>(_ body: () throws -> T) throws -> T {
+        try inCLocale { _ in try body() }
+    }
+
+    private func inCLocale<T>(_ body: (locale_t) throws -> T) throws -> T {
+        // A nil base leaves every other category at C too.
+        let c = try #require(newlocale(LC_CTYPE_MASK, "C", nil))
+        let previous = uselocale(c)
+        defer { uselocale(previous); freelocale(c) }
+        return try body(c)
+    }
+
+    /// One empty stored member with general purpose bit 11 set, built by hand
+    /// so the reader is tested against a flag libarchive's writer did not set.
+    private static func flaggedZip(named name: String) -> Data {
+        func le16(_ value: Int) -> Data { Data([UInt8(value & 0xFF), UInt8(value >> 8 & 0xFF)]) }
+        func le32(_ value: Int) -> Data { le16(value & 0xFFFF) + le16(value >> 16 & 0xFFFF) }
+        let bytes = Data(name.utf8)
+        // version, flags (UTF-8), method (stored), time, date (1980-01-01),
+        // crc, compressed size, size, name length, extra length.
+        let common = le16(20) + le16(0x0800) + le16(0) + le16(0) + le16(0x21)
+            + le32(0) + le32(0) + le32(0) + le16(bytes.count) + le16(0)
+        let local = le32(0x0403_4B50) + common + bytes
+        let central = le32(0x0201_4B50) + le16(0x031E) + common
+            + le16(0) + le16(0) + le16(0) + le32(0o100644 << 16) + le32(0) + bytes
+        let end = le32(0x0605_4B50) + le16(0) + le16(0) + le16(1) + le16(1)
+            + le32(central.count) + le32(local.count) + le16(0)
+        return local + central + end
+    }
+}
+
 extension Data {
     /// Replaces every occurrence of `needle` with `replacement`, which must be
     /// the same length — the fixtures here patch names into archives whose

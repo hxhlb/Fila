@@ -199,6 +199,7 @@ check:
 	@command -v ldid >/dev/null || { echo "error: ldid is required" >&2; exit 69; }
 	@command -v dpkg-deb >/dev/null || { echo "error: dpkg-deb is required" >&2; exit 69; }
 	@test -d "$(PROJECT)" || { echo "error: Fila.xcodeproj is missing" >&2; exit 66; }
+	@"$(ROOT_DIR)/Scripts/check-gpu-entitlements.py" "$(ROOT_DIR)/Packaging/Fila.entitlements"
 	@test -f "$(CONTROL_TEMPLATE)" || { echo "error: Debian control template is missing" >&2; exit 66; }
 	@command -v zip >/dev/null || { echo "error: zip is required" >&2; exit 69; }
 	@test -f "$(PACKAGE_DIR)/Package.swift" || { echo "error: Packages/FilaKit/Package.swift is missing" >&2; exit 66; }

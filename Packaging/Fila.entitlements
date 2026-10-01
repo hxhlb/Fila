@@ -1,11 +1,17 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-	`com.apple.security.iokit-user-client-class` is the terminal's, and only
-	the terminal's. Every other screen in this app draws through UIKit, which
-	renders out of process and needs nothing here; libghostty draws with Metal
-	inside the app, and a bootstrap withholds the GPU from an ad-hoc signed
-	binary until this entitlement names the classes.
+	`com.apple.security.iokit-user-client-class` names the GPU and what sits
+	beside it. libghostty draws with Metal inside the app, and a bootstrap
+	withholds the GPU from an ad-hoc signed binary until this entitlement
+	names the classes. The terminal is not the only reader: system frameworks
+	reach for the GPU inside the app's process too — IconServices composites
+	an app icon through Core Image (Inspector crashed at launch in
+	`CI::GLContext::GLContext` without it), and Bold Text and the share sheet
+	do the same through UIKit (Irisin). So the list is not trimmed to the
+	terminal, and it is Irisin's, under both spellings of the key: the
+	kernel's denial names the plain one, and Irisin's Bold Text fix was the
+	`exception.` one.
 
 	The failure it fixes is silent and looks like anything but an entitlement:
 	the surface never reports a viewport and the terminal is a blank rectangle,
@@ -18,11 +24,16 @@
 	`AppleParavirtDeviceUserClient` is the one that matters on a VM, which is
 	where this project is developed: vphone's paravirtual GPU reports the same
 	denial under its own class name. The AGX entries are the physical-device
-	equivalents, and the rest is the render path only — IOSurface, the
-	framebuffer, JPEG decode, and the HID clients UIKit opens for input.
+	equivalents; `IOSurfaceAcceleratorParavirtClient` and
+	`AppleVirtIONeuralEngineDeviceUserClient` are vphone's names for the
+	surface accelerator and the neural engine. The rest is the render path —
+	IOSurface, the framebuffer, JPEG decode, the HID clients UIKit opens for
+	input — plus `IOGPUDeviceUserClient` and `IOAccelerator` from Irisin's
+	Bold Text report and `H11ANEInDirectPathClient`, the neural engine Vision
+	asks for.
 
 	Measured and documented first in iGhostVT, whose entitlements file carries
-	the full findings; this is the same list for the same reason.
+	the full findings.
 -->
 <plist version="1.0">
 <dict>
@@ -38,6 +49,7 @@
 		<string>AGXSharedUserClient</string>
 		<string>AGXGLContext</string>
 		<string>AppleParavirtDeviceUserClient</string>
+		<string>IOAccelerator</string>
 		<string>IOAccelContext</string>
 		<string>IOAccelContext2</string>
 		<string>IOAccelDevice</string>
@@ -45,10 +57,41 @@
 		<string>IOAccelSharedUserClient</string>
 		<string>IOAccelSharedUserClient2</string>
 		<string>IOAccelSubmitter2</string>
+		<string>IOGPUDeviceUserClient</string>
 		<string>IOSurfaceRootUserClient</string>
 		<string>IOSurfaceAcceleratorClient</string>
+		<string>IOSurfaceAcceleratorParavirtClient</string>
 		<string>IOMobileFramebufferUserClient</string>
 		<string>AppleJPEGDriverUserClient</string>
+		<string>H11ANEInDirectPathClient</string>
+		<string>AppleVirtIONeuralEngineDeviceUserClient</string>
+		<string>IOHIDLibUserClient</string>
+		<string>IOHIDEventServiceFastPathUserClient</string>
+	</array>
+	<key>com.apple.security.exception.iokit-user-client-class</key>
+	<array>
+		<string>AGXCommandQueue</string>
+		<string>AGXDevice</string>
+		<string>AGXDeviceUserClient</string>
+		<string>AGXSharedUserClient</string>
+		<string>AGXGLContext</string>
+		<string>AppleParavirtDeviceUserClient</string>
+		<string>IOAccelerator</string>
+		<string>IOAccelContext</string>
+		<string>IOAccelContext2</string>
+		<string>IOAccelDevice</string>
+		<string>IOAccelDevice2</string>
+		<string>IOAccelSharedUserClient</string>
+		<string>IOAccelSharedUserClient2</string>
+		<string>IOAccelSubmitter2</string>
+		<string>IOGPUDeviceUserClient</string>
+		<string>IOSurfaceRootUserClient</string>
+		<string>IOSurfaceAcceleratorClient</string>
+		<string>IOSurfaceAcceleratorParavirtClient</string>
+		<string>IOMobileFramebufferUserClient</string>
+		<string>AppleJPEGDriverUserClient</string>
+		<string>H11ANEInDirectPathClient</string>
+		<string>AppleVirtIONeuralEngineDeviceUserClient</string>
 		<string>IOHIDLibUserClient</string>
 		<string>IOHIDEventServiceFastPathUserClient</string>
 	</array>

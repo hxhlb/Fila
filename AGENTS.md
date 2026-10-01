@@ -127,12 +127,10 @@ between the app and the kernel with nothing in between.
   `UIImage(systemName:)` returns nil and the control draws nothing. `make check`
   warns on the first (only below iOS 16; a raised floor is entitled to the
   overlay) and fails on the second, against CoreGlyphs' own availability table.
-  *Three*, in Irisin 4.5.11 on iOS 26.6.2: `Symbol not found:
-  _swift_initBorrow`, expected in `libswiftCore.dylib`. swift-collections
-  1.7.0 built with Xcode 27 imports that iOS 27 runtime entry point strongly;
-  the library is on the old device and the symbol is not. Fila resolves
-  swift-collections through swift-nio (`from: "1.1.0"`) at 1.6.0, which does
-  not, and nothing here pins it: an update can move it.
+  *Three:* a Swift runtime entry point newer than the floor, imported
+  strongly by code that never names it (Swift 6.4 does it with
+  `_swift_initBorrow`, iOS 27): the library is on the old device and the
+  symbol is not, and dyld refuses the process.
   `Scripts/audit-ios-floor.sh`, copied verbatim from
   `../platformize-app-ios/scripts/`, is the proof, and both verifiers run it
   over every image they unpack — the app with its frameworks and extension,

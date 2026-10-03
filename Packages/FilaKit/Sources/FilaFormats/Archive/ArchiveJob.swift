@@ -302,6 +302,7 @@ public final class ArchiveJob: @unchecked Sendable {
         // between, and those members are as missing as a skipped one.
         for (_, declaredPath) in (wanted ?? [:]).sorted(by: { $0.key < $1.key }) {
             skip(declaredPath, "the archive changed after it was listed", note: note)
+            progress.finishedItem(bytes: 0)
         }
         for entry in links {
             try checkCancelled(ArchivePath.displayName(entry.declaredPath))

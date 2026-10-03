@@ -44,7 +44,11 @@ Navigation was driven without taps: `uiopen 'fila://open?path=…'` over SSH
 into a running app (launched to `/usr/lib` six seconds earlier), so launch
 contention stays out of the numbers. A link is a *jump* — the tab's stack is
 replaced — and takes the same pre-push wait a tap's push takes, so the trace
-shows the same path a tap would.
+shows the same path a tap would. A link now first asks for the item's details,
+so that a file can be shown selected in its folder: one `lstat` round trip
+before the jump. On a cold run that `lstat` also brings the target
+folder's own vnode into memory before the listing is timed, so a cold number
+measured through a link is slightly kinder than a tap's.
 
 **Cold, repeatably.** The vphone cannot be restarted, but `kern.maxvnodes`
 is 14 000 and `find /System/Library /usr /private/var/db -type f` walks

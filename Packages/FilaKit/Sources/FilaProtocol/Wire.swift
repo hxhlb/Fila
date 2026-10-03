@@ -124,9 +124,9 @@ public enum FilaOperation: UInt64, Sendable, CaseIterable {
     case goodbye = 10
 
     /// Put a temp file the client has finished writing in place of the target:
-    /// carry the original's mode, owner, creation time, xattrs and BSD flags
-    /// across, then `rename(2)`. This is the only way a client saves a file, and the
-    /// reason a power cut cannot leave half a system plist behind.
+    /// carry the original's mode, owner, creation time, ACLs, xattrs and BSD
+    /// flags across, then `rename(2)`. This is the only way a client saves a
+    /// file, and the reason a power cut cannot leave half a system plist behind.
     case replaceItem = 11
 
     /// `statfs` for the volume a path lives on — the browser's footer, and the

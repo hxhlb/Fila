@@ -141,8 +141,9 @@ extension WebDAVHandler {
 
         // The same shape as every other write in this app: a temporary beside
         // the target, then `replaceItem`, which carries the original's mode,
-        // owner, creation time, xattrs and flags across and `rename(2)`s. A truncating
-        // write here would let a dropped Wi-Fi connection halve a system plist.
+        // owner, creation time, ACLs, xattrs and flags across and `rename(2)`s.
+        // A truncating write here would let a dropped Wi-Fi connection halve a
+        // system plist.
         let temporary = RemotePath.join(parent, ".fila-tmp-\(UUID().uuidString)")
         // Keep incomplete uploads private; publication applies the new-file
         // defaults or preserves the existing destination’s metadata.

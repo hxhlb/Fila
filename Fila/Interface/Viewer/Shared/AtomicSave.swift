@@ -8,10 +8,11 @@ import UIKit
 /// The only way an editor in this app writes a file.
 ///
 /// Write a temporary beside the target, then ask the daemon to put it in place:
-/// `replaceItem` carries the original's mode, owner, creation time, xattrs and
-/// BSD flags across and `rename(2)`s, so a power cut during a save leaves either the old
-/// file or the new one and never half of either. A half-written launchd plist is
-/// a boot loop on a phone that cannot be booted into anything else.
+/// `replaceItem` carries the original's mode, owner, creation time, ACLs,
+/// xattrs and BSD flags across and `rename(2)`s, so a power cut during a save
+/// leaves either the old file or the new one and never half of either. A
+/// half-written launchd plist is a boot loop on a phone that cannot be booted
+/// into anything else.
 ///
 /// The temporary is created `O_CREAT | O_EXCL` under a name nothing else would
 /// pick, because an editor that can be raced into writing through a symlink an

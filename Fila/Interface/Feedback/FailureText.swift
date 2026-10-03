@@ -32,7 +32,7 @@ enum FailureText {
         case .notFound:
             // ENOTDIR shares the code with ENOENT so clients treat the two
             // alike, but the item it names may well exist — as a file where
-            // a folder was asked for, as by a `fila://open` link to a file.
+            // a folder was asked for, as by *Go to Path* naming a file.
             parts.append(failure.systemError == ENOTDIR
                 ? String(localized: "Part of this path is a file, not a folder.")
                 : String(localized: "This item no longer exists."))

@@ -588,6 +588,8 @@ final class OperationCenter: ObservableObject {
     ///   is the button on its task row — a toast has no room for one.
     /// - `.successOnly`, instant and archive successes get a toast; the archive progress card
     ///   dismisses without announcing the same completion again.
+    /// - An extraction that left members out is a card with the count, never a
+    ///   toast: it is not the success a toast would say it was.
     /// - Everything else already said it, in the transfers list, while it ran.
     private func announce(_ operation: Operation) {
         guard operation.feedback != .silent else { return }
@@ -597,8 +599,8 @@ final class OperationCenter: ObservableObject {
             return
         }
         guard operation.succeeded else { return }
-        // A partial extraction is not the success a toast says it is: the
-        // person would find out from the folder, one missing file at a time.
+        // Otherwise the person would find out from the folder, one missing
+        // file at a time.
         if operation.skippedItems > 0 {
             FeedbackAlert.show(
                 String(localized: "Some Items Were Not Extracted"),

@@ -51,10 +51,12 @@ extension FileBrowserViewController {
             ) { [weak self] _ in
                 guard let self, let original = originalPath(of: node) else { return }
                 // A directory is somewhere to be, a file is something to be
-                // shown in its folder — which is `fila://open` and
-                // `fila://reveal`, so it goes through them rather than past
-                // them. Both re-root the tab: see `open(directory:)` for why
-                // going anywhere that is not a child of this folder is a jump.
+                // shown in its folder — the router's `.directory` and
+                // `.reveal`, where `fila://` links land, so it goes through
+                // them rather than past them. The kind is already known, so
+                // there is no lookup. Both re-root the tab: see
+                // `open(directory:)` for why going anywhere that is not a
+                // child of this folder is a jump.
                 shell?.follow(link.resolvedKind == .directory ? .directory(original) : .reveal(original))
             })
         }

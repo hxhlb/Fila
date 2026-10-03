@@ -62,9 +62,9 @@ Use `fila://` links in Shortcuts or other apps to open a folder, file, or screen
 | --- | --- |
 | `fila://` | Fila, keeping the current screen or restoring it on launch |
 | `fila://view/var/mobile/Documents` | A folder directly; a file is selected in its parent folder without preview |
-| `fila:///var/mobile/Documents` | The Documents folder |
+| `fila:///var/mobile/Documents` | The Documents folder; a file is selected in its parent folder |
 | `fila://open?path=/var/mobile` | The specified folder; a file is selected in its parent folder |
-| `fila://open?path=/var/mobile&tab=new` | The folder in a new tab; a file is selected in its parent folder there |
+| `fila://open?path=/var/mobile&tab=new` | The folder in a new tab, or the tab already showing it; a file's parent folder is opened the same way, and the file is selected in a new tab |
 | `fila://reveal?path=/etc/hosts` | The folder that contains the file |
 | `fila://view?path=/etc/hosts` | The file in its viewer |
 | `fila://info?path=/etc/hosts` | The file’s properties |

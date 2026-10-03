@@ -42,7 +42,11 @@
                 var selected: [ArchiveSelection] = []
                 for index in 0 ..< xpc_array_get_count(array) {
                     let entry = xpc_array_get_value(array, index)
-                    guard let path = xpc_dictionary_get_string(entry, FilaWireKey.memberPath) else { return nil }
+                    // A dictionary accessor on anything else is API misuse, and
+                    // libxpc answers that by killing the process — here, the
+                    // root daemon and every job in it.
+                    guard xpc_get_type(entry) == FilaXPC.typeDictionary,
+                          let path = xpc_dictionary_get_string(entry, FilaWireKey.memberPath) else { return nil }
                     selected.append(ArchiveSelection(
                         index: xpc_dictionary_get_int64(entry, FilaWireKey.memberIndex),
                         declaredPath: String(cString: path),

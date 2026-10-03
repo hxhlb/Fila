@@ -24,6 +24,26 @@ struct ArchivePathTests {
         #expect(ArchivePath.validated("/") == nil)
     }
 
+    /// "/" followed by a combining mark, a ZWJ or a variation selector is one
+    /// `Character` and not equal to "/". The kernel splits on the byte, so a
+    /// check that splits on graphemes sees one name where `open` walks `..`.
+    @Test(arguments: [
+        "../\u{301}x", "a/../\u{301}../x", "\u{301}/../../x", "../\u{200D}x", "../\u{FE0F}x",
+        "/\u{301}x", "a/\u{0}/../../x",
+    ])
+    func `A name is split where the kernel splits it`(declared: String) {
+        #expect(ArchivePath.validated(declared) == nil)
+    }
+
+    @Test
+    func `A combining mark after a slash starts the next component`() {
+        #expect(ArchivePath.validated("a/\u{301}b") == "a/\u{301}b")
+        #expect(ArchivePath.components(of: "a/\u{301}b") == ["a", "\u{301}b"])
+        #expect(!ArchivePath.isComponent("../\u{301}x"))
+        #expect(!ArchivePath.isComponent(".."))
+        #expect(ArchivePath.isComponent("\u{301}x"))
+    }
+
     /// Both halves of the two-step attack are perfectly ordinary names, which is
     /// exactly why the name check cannot be the whole defence: an archive can
     /// carry `pwn` as a symlink to somewhere else entirely and then `pwn/loot`,

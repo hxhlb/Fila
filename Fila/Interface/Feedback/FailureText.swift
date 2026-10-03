@@ -30,7 +30,12 @@ enum FailureText {
         case .notPermitted:
             parts.append(String(localized: "Fila does not have permission to do this."))
         case .notFound:
-            parts.append(String(localized: "This item no longer exists."))
+            // ENOTDIR shares the code with ENOENT so clients treat the two
+            // alike, but the item it names may well exist — as a file where
+            // a folder was asked for, as by a `fila://open` link to a file.
+            parts.append(failure.systemError == ENOTDIR
+                ? String(localized: "Part of this path is a file, not a folder.")
+                : String(localized: "This item no longer exists."))
         case .wrongPassword:
             parts.append(String(
                 localized: "The archive password is missing or incorrect. Enter the password and try again.",

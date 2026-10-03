@@ -15,14 +15,23 @@ enum DescriptorImage {
     ///
     /// The thumbnail bounds the returned raster. Source dimensions are checked
     /// separately because codec intermediate allocations are format-dependent.
-    static func thumbnail(descriptor: Int32, byteCount: Int64, maxPixelSize: Int) -> CGImage? {
+    ///
+    /// Nil is "this file has no picture"; a throw is "not now" — a `dup` or a
+    /// read that failed says nothing about the file, and a caller that caches
+    /// nil must not be handed one for it.
+    static func thumbnail(descriptor: Int32, byteCount: Int64, maxPixelSize: Int) throws -> CGImage? {
         let reads = ReadLog()
-        guard let provider = provider(descriptor: descriptor, byteCount: byteCount, reads: reads),
-              let source = CGImageSourceCreateWithDataProvider(
-                  provider,
-                  [kCGImageSourceShouldCache: false] as CFDictionary,
-              )
-        else { return nil }
+        guard let provider = try provider(descriptor: descriptor, byteCount: byteCount, reads: reads) else { return nil }
+        let image = thumbnail(of: provider, maxPixelSize: maxPixelSize)
+        try reads.check()
+        return image
+    }
+
+    private static func thumbnail(of provider: CGDataProvider, maxPixelSize: Int) -> CGImage? {
+        guard let source = CGImageSourceCreateWithDataProvider(
+            provider,
+            [kCGImageSourceShouldCache: false] as CFDictionary,
+        ) else { return nil }
         guard ImagePreview.hasSupportedDimensions(source) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -30,19 +39,29 @@ enum DescriptorImage {
             kCGImageSourceShouldCacheImmediately: true,
             kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
         ]
-        let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
-        return reads.failed ? nil : image
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 
     /// The first page of a PDF, fitted into `maxPixelSize`. White behind it
     /// rather than transparent, because a PDF page is ink on paper and ink on
-    /// nothing is invisible in dark mode.
-    static func firstPage(descriptor: Int32, byteCount: Int64, maxPixelSize: Int) -> CGImage? {
+    /// nothing is invisible in dark mode. Nil and a throw mean what they mean
+    /// for `thumbnail`.
+    static func firstPage(descriptor: Int32, byteCount: Int64, maxPixelSize: Int) throws -> CGImage? {
         let reads = ReadLog()
-        guard let provider = provider(descriptor: descriptor, byteCount: byteCount, reads: reads),
-              let document = CGPDFDocument(provider),
+        guard let provider = try provider(descriptor: descriptor, byteCount: byteCount, reads: reads) else { return nil }
+        let image = firstPage(of: provider, maxPixelSize: maxPixelSize)
+        try reads.check()
+        return image
+    }
+
+    private static func firstPage(of provider: CGDataProvider, maxPixelSize: Int) -> CGImage? {
+        guard let document = CGPDFDocument(provider),
               let page = document.page(at: 1)
         else { return nil }
+        // Core Graphics decodes every image a page draws at its declared size
+        // before scaling it into the context, so the small context bounds
+        // nothing: a few megabytes of Flate can declare gigabytes of raster.
+        guard PDFRasterBudget.fits(page) else { return nil }
 
         // `/Rotate 90` is ordinary in anything scanned, and a hand-rolled scale
         // and translate ignores it — the page comes out on its side and fitted
@@ -72,7 +91,7 @@ enum DescriptorImage {
             preserveAspectRatio: true,
         ))
         context.drawPDFPage(page)
-        return reads.failed ? nil : context.makeImage()
+        return context.makeImage()
     }
 
     /// A provider that answers by `pread` on its own `dup(2)` of the descriptor.
@@ -82,17 +101,15 @@ enum DescriptorImage {
     /// reading whatever file inherited the number — a wrong picture rather than
     /// a failure, which is the worse of the two.
     static func provider(descriptor: Int32, byteCount: Int64) -> CGDataProvider? {
-        provider(descriptor: descriptor, byteCount: byteCount, reads: ReadLog())
+        try? provider(descriptor: descriptor, byteCount: byteCount, reads: ReadLog())
     }
 
-    private static func provider(descriptor: Int32, byteCount: Int64, reads: ReadLog) -> CGDataProvider? {
+    /// Throws when the `dup` fails: a process near its descriptor limit is a
+    /// moment, not a property of the file.
+    private static func provider(descriptor: Int32, byteCount: Int64, reads: ReadLog) throws -> CGDataProvider? {
+        guard byteCount > 0 else { return nil }
         let copy = dup(descriptor)
-        guard copy >= 0, byteCount > 0 else {
-            if copy >= 0 {
-                close(copy)
-            }
-            return nil
-        }
+        guard copy >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
         var callbacks = CGDataProviderDirectCallbacks(
             version: 0,
             getBytePointer: nil,
@@ -110,7 +127,7 @@ enum DescriptorImage {
                         // reads to Core Graphics as end of data, and the caller
                         // gets a silently truncated picture. So the failure is
                         // recorded here and the caller throws the result away.
-                        file.reads.recordFailure()
+                        file.reads.recordFailure(errno)
                         return 0
                     }
                     return got
@@ -147,17 +164,25 @@ private final class DescriptorBox {
 /// Codecs may read a provider from several worker threads.
 private final class ReadLog {
     private let lock = NSLock()
-    private var storedFailure = false
+    /// The first failed read's `errno`.
+    private var storedFailure: Int32?
 
-    var failed: Bool {
+    func recordFailure(_ code: Int32) {
         lock.lock()
         defer { lock.unlock() }
-        return storedFailure
+        if storedFailure == nil {
+            storedFailure = code
+        }
     }
 
-    func recordFailure() {
+    /// Throws when any read failed: whatever was decoded is a truncated
+    /// picture, or a refusal that says nothing about the file.
+    func check() throws {
         lock.lock()
-        defer { lock.unlock() }
-        storedFailure = true
+        let failure = storedFailure
+        lock.unlock()
+        if let failure {
+            throw POSIXError(POSIXErrorCode(rawValue: failure) ?? .EIO)
+        }
     }
 }

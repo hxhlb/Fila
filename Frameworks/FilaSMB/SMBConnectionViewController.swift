@@ -91,6 +91,15 @@ final class SMBConnectionViewController: UITableViewController {
         navigationItem.rightBarButtonItem?.isEnabled = profile.validationFailure == nil
     }
 
+    /// Choose Share asks the server, so it needs an address and a port a
+    /// connection can be made to; the share and the account may be blank.
+    private var canChooseShare: Bool {
+        switch profile.validationFailure {
+        case .hostMissing, .hostInvalid, .portInvalid: false
+        case .shareMissing, .shareInvalid, .usernameMissing, nil: true
+        }
+    }
+
     // MARK: - Rows
 
     private func rows(in section: Section) -> [Row] {
@@ -162,10 +171,10 @@ final class SMBConnectionViewController: UITableViewController {
             let cell = tableView.dequeueReusableCell(withIdentifier: "row", for: indexPath)
             var content = UIListContentConfiguration.cell()
             content.text = String(localized: "Choose Share…", bundle: bundle)
-            content.textProperties.color = profile.host.isEmpty ? .secondaryLabel : .tintColor
+            content.textProperties.color = canChooseShare ? .tintColor : .secondaryLabel
             cell.contentConfiguration = content
             cell.accessoryView = nil
-            cell.selectionStyle = profile.host.isEmpty ? .none : .default
+            cell.selectionStyle = canChooseShare ? .default : .none
             return cell
         case .guest:
             let cell = tableView.dequeueReusableCell(withIdentifier: "row", for: indexPath)
@@ -196,7 +205,7 @@ final class SMBConnectionViewController: UITableViewController {
         let row = rows(in: Section(rawValue: indexPath.section)!)[indexPath.row]
         switch row {
         case .chooseShare:
-            guard !profile.host.isEmpty else { return }
+            guard canChooseShare else { return }
             view.endEditing(true)
             chooseShare()
         case .guest, .host, .port, .share, .domain, .username, .password, .name:
@@ -291,13 +300,15 @@ final class SMBConnectionViewController: UITableViewController {
 
     private func apply(_ text: String, to row: Row) {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
-        switch row {
-        case .host:
-            let wasEmpty = profile.host.isEmpty
-            profile.host = trimmed
-            if wasEmpty != trimmed.isEmpty {
+        let couldChooseShare = canChooseShare
+        defer {
+            if canChooseShare != couldChooseShare {
                 reload(.chooseShare)
             }
+        }
+        switch row {
+        case .host:
+            profile.host = trimmed
             reloadNamePlaceholder()
         case .port:
             // Empty is the default; anything else must parse, or Save waits.

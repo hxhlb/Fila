@@ -22,6 +22,14 @@ let filaTrashIsReachable = access(filaScratchMountPoint, W_OK) == 0
 /// The scratch volume's trash.
 let filaTrashDirectory = FilaTrash.directory(under: filaScratchMountPoint)
 
+/// Whether `/` is mounted read-only, as the sealed system volume of a current
+/// Mac is: the one read-only folder every test host has without attaching an
+/// image.
+let filaVolumeRootIsReadOnly: Bool = {
+    var volume = statfs()
+    return statfs("/", &volume) == 0 && volume.f_flags & UInt32(MNT_RDONLY) != 0
+}()
+
 /// Takes back what the test put in the shared trash, and the directory with
 /// it when it is empty — this is a real trash on the developer's own machine
 /// and a test has no business accumulating in it.
@@ -266,6 +274,20 @@ struct JobTests {
         #expect(outcome.code != .success)
         #expect(outcome.code != .cancelled)
         #expect(try FileManager.default.contentsOfDirectory(atPath: scratch.path("destination")).isEmpty)
+    }
+
+    /// The sealed system volume refuses the temporary beside the target, which
+    /// is a fact about the destination, so the destination is what the
+    /// failure names — not the file the user copied.
+    @Test(.enabled(if: filaVolumeRootIsReadOnly, "the host's volume root is writable"))
+    func `A copy into a read-only folder names the destination, not the source`() {
+        let name = "fila-readonly-\(UUID().uuidString).txt"
+        let source = scratch.file(name, contents: "payload")
+
+        let outcome = run(JobRequest(kind: .copy, sources: [source], destination: "/"))
+        #expect(outcome.systemError == EROFS)
+        #expect(outcome.path == "/" + name)
+        #expect(!exists("/" + name))
     }
 
     @Test

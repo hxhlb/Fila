@@ -22,6 +22,9 @@ final class MediaPlayerViewController: TabContentViewController {
     private var nowPlaying: AudioNowPlayingSession?
     private var videoPlaybackObservation: NSKeyValueObservation?
     private var startsAudioOnAppearance = false
+    /// The first start, waiting on the audio session. Replacing the document
+    /// clears it, so the late activation does not play what was just stopped.
+    private var pendingStart: UUID?
     /// Held for the life of the screen: the asset reads through it, so releasing
     /// it closes the descriptor out from under the player.
     private var media: DescriptorAsset?
@@ -64,6 +67,7 @@ final class MediaPlayerViewController: TabContentViewController {
         }
 
         container?.confirmReplacement = { [weak self] _, perform in
+            self?.pendingStart = nil
             self?.nowPlaying?.stop()
             self?.player?.player?.pause()
             perform()
@@ -75,22 +79,22 @@ final class MediaPlayerViewController: TabContentViewController {
         super.viewDidAppear(animated)
         if startsAudioOnAppearance {
             startsAudioOnAppearance = false
-            prepareAudioSession()
+            // Activate only when playback starts, never while loading a hidden tab.
+            startPlayback()
+        }
+    }
+
+    private func startPlayback() {
+        let token = UUID()
+        pendingStart = token
+        AudioSessionActivation.activate { [weak self] in
+            guard let self, pendingStart == token else { return }
+            pendingStart = nil
             player?.player?.play()
         }
     }
 
-    private func prepareAudioSession() {
-        // Activate only when playback starts, never while loading a hidden tab.
-        // Playback audio stays audible when the device's mute switch is on.
-        try? AVAudioSession.sharedInstance().setCategory(.playback)
-        try? AVAudioSession.sharedInstance().setActive(true)
-    }
-
     private func play(_ media: DescriptorAsset) {
-        if !isAudio {
-            prepareAudioSession()
-        }
         let controller = AVPlayerViewController()
         let playback = AVPlayer(playerItem: AVPlayerItem(asset: media.asset))
         controller.player = playback
@@ -115,7 +119,7 @@ final class MediaPlayerViewController: TabContentViewController {
         controller.didMove(toParent: self)
         player = controller
         if !isAudio {
-            playback.play()
+            startPlayback()
         }
     }
 

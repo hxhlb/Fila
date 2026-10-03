@@ -126,3 +126,39 @@ public enum QueryDirectory {
         public static let reopen = Flags(rawValue: 0x10)
     }
 }
+
+// Fila: `Response.init(data:)` and `files()` slice the reply at offsets and
+// lengths the server chose, and trap on any that point outside it. A reply
+// is checked with this before it is parsed: the output buffer inside the
+// message, and every entry inside the buffer, its name included. Entries
+// are FILE_DIRECTORY_INFORMATION, a fixed 64 bytes whose last four are the
+// name's length, then the name.
+public extension QueryDirectory.Response {
+    static func isWellFormed(_ data: Data) -> Bool {
+        // The header, then StructureSize, OutputBufferOffset and
+        // OutputBufferLength.
+        guard data.count >= 72 else { return false }
+        let offset = Int(littleEndian(data, at: 66, count: 2))
+        let length = Int(littleEndian(data, at: 68, count: 4))
+        guard offset <= data.count, length <= data.count - offset else { return false }
+        guard length > 0 else { return true }
+        var entry = 0
+        while true {
+            guard entry <= length - 64 else { return false }
+            let nameLength = Int(littleEndian(data, at: offset + entry + 60, count: 4))
+            guard nameLength <= length - entry - 64 else { return false }
+            let next = Int(littleEndian(data, at: offset + entry, count: 4))
+            if next == 0 {
+                return true
+            }
+            entry += next
+        }
+    }
+
+    private static func littleEndian(_ data: Data, at position: Int, count: Int) -> UInt32 {
+        let start = data.startIndex + position
+        return (0 ..< count).reduce(UInt32(0)) { value, byte in
+            value | UInt32(data[start + byte]) << (8 * byte)
+        }
+    }
+}

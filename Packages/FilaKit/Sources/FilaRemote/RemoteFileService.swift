@@ -42,3 +42,59 @@ public protocol RemoteFileService: Sendable {
     /// in the app this one cannot be fire-and-forget.
     func run(_ job: JobRequest) async throws
 }
+
+public extension RemoteFileService {
+    /// Where `path` actually lands once every symlink in it has been followed
+    /// — the path the kernel will reach when a verb opens, creates or renames
+    /// it — or nil when that cannot be settled.
+    ///
+    /// `details` canonicalises a path's parents and reports its last
+    /// component as `lstat` finds it, so a final link is followed here, as
+    /// many times as it takes: a link to a link is one hop the kernel takes
+    /// and a one-hop check does not. A path that does not exist yet — the
+    /// target of a `PUT` or a `MKCOL`, or anything under a directory that a
+    /// link stands in for — is the resolved place of its nearest existing
+    /// ancestor with the rest of its names after it, because that is where
+    /// the kernel would create it.
+    ///
+    /// Nil, which a caller must read as *refused*, for a link it cannot read,
+    /// a chain longer than the kernel's own `MAXSYMLINKS`, a name the walk
+    /// cannot place — a `..` past a component that does not exist — or a
+    /// lookup that failed for any reason but absence: a link whose own
+    /// lookup dropped points somewhere nobody knows, and its name says
+    /// nothing about where.
+    func resolvedPath(of path: String) async -> String? {
+        var current = path
+        var remainder: [String] = []
+        var hops = 0
+        while true {
+            let found: FileDetails?
+            do {
+                found = try await details(of: current)
+            } catch let failure as FilaFailure where failure.systemError == ENOENT || failure.systemError == ENOTDIR {
+                found = nil
+            } catch {
+                return nil
+            }
+            guard let details = found else {
+                // Not there: judged by where it would be.
+                guard current != "/", current.hasPrefix("/") else { return nil }
+                let name = RemotePath.name(of: current)
+                guard name != ".", name != ".." else { return nil }
+                remainder.insert(name, at: 0)
+                current = RemotePath.parent(of: current)
+                continue
+            }
+            guard details.node.kind == .symbolicLink else {
+                return remainder.reduce(details.path) { RemotePath.join($0, $1) }
+            }
+            hops += 1
+            guard hops <= Int(MAXSYMLINKS), let target = details.node.link?.target, !target.isEmpty else {
+                return nil
+            }
+            current = target.hasPrefix("/")
+                ? target
+                : RemotePath.join(RemotePath.parent(of: details.path), target)
+        }
+    }
+}

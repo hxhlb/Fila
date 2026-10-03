@@ -221,6 +221,11 @@ private func extensionMatch(_ name: String) -> FileFormat? {
     case "mp4", "mov", "m4v", "mkv", "avi": return .video
     case "pdf": return .pdf
     case "db", "sqlite", "sqlite3": return .sqlite
+    // The system calls `.bin` MacBinary, which conforms to archive. On this
+    // device it is firmware or a raw dump, and the archive browser would
+    // show it as an empty archive or a failure; a real archive inside one
+    // is still found by its signature first.
+    case "bin": return .binary
     case "txt", "md", "json", "log", "sh", "conf", "cfg", "ini", "yml", "yaml", "c", "h", "m",
          "mm", "swift", "js", "py", "rb", "html", "css", "xml", "caml", "pl", "list": return .text
     default: break

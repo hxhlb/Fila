@@ -270,7 +270,15 @@ final class FileSharingViewController: UIViewController {
             case .userName: AppPreferences.shared.serverUsername = text
             case .password: AppPreferences.shared.serverPassword = text
             case .port:
-                guard let port = UInt16(text), port >= 1024 else { return }
+                // Dropping it without a word left the old port standing
+                // behind a Save that looked like it had worked.
+                guard let port = UInt16(text), port >= 1024 else {
+                    self?.presentMessage(
+                        String(localized: "Invalid Port"),
+                        message: String(localized: "Enter a port from 1024 to 65535."),
+                    )
+                    return
+                }
                 AppPreferences.shared.serverPort = port
             default: return
             }

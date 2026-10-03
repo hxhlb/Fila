@@ -25,7 +25,7 @@ extension PathBarView {
         }
         for component in path.dropFirst(prefix.count).split(separator: "/").map(String.init) {
             prefix += "/" + component
-            crumbs.append(Crumb(title: component, target: prefix, icon: folder))
+            crumbs.append(Crumb(title: FilePresentation.visibleName(component), target: prefix, icon: folder))
         }
         return crumbs
     }
@@ -36,6 +36,6 @@ extension PathBarView {
     static func localCrumbs(forFile path: String, icon: UIImage?) -> [Crumb] {
         let name = (path as NSString).lastPathComponent
         let directory = (path as NSString).deletingLastPathComponent
-        return localCrumbs(for: directory) + [Crumb(title: name, target: path, icon: icon)]
+        return localCrumbs(for: directory) + [Crumb(title: FilePresentation.visibleName(name), target: path, icon: icon)]
     }
 }

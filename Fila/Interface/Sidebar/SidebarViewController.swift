@@ -215,7 +215,13 @@ final class SidebarViewController: UIViewController {
             do {
                 let mounts = try await session.perform(retryOnDisconnect: true) { try await $0.mountPoints() }
                 guard let self, !Task.isCancelled else { return }
-                self.mounts = mounts
+                // One row per mount point. A file system mounted over another
+                // is a second record with the same path, and a row's path is
+                // its identity: two in one snapshot crash the sidebar. The
+                // later record is the one on top, which is what the path
+                // reaches.
+                var seen: Set<String> = []
+                self.mounts = Array(mounts.reversed().filter { seen.insert($0.path).inserted }.reversed())
                 rebuild()
             } catch {
                 // The shortcut section can be retried by reopening Places;
@@ -233,8 +239,14 @@ final class SidebarViewController: UIViewController {
         guard let path = session.trashDirectory else { return }
         trashProbe?.cancel()
         trashProbe = Task { [weak self, session] in
-            let page = try? await session.perform(retryOnDisconnect: true) {
-                try await $0.list(directory: path, cursor: 0)
+            let page = try? await session.perform(retryOnDisconnect: true) { link in
+                let page = try await link.list(directory: path, cursor: 0)
+                // A trash longer than a page leaves the listing open in the
+                // daemon, and this probe runs after every job.
+                if page.cursor != 0 {
+                    try? await link.closeDirectory(cursor: page.cursor)
+                }
+                return page
             }
             guard let self, !Task.isCancelled else { return }
             let hasItems = page?.entries.isEmpty == false

@@ -104,5 +104,6 @@ public enum ArchiveHelperLine: Codable, Sendable, Hashable {
     /// A member skipped for a reason the outcome cannot carry — a name that
     /// escapes the destination, a device node. Logged by the daemon.
     case note(String)
-    case completed(FilaFailure)
+    /// The outcome, and how many members were skipped with a note.
+    case completed(FilaFailure, skipped: Int64)
 }

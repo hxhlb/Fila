@@ -124,8 +124,8 @@ public enum FilaOperation: UInt64, Sendable, CaseIterable {
     case goodbye = 10
 
     /// Put a temp file the client has finished writing in place of the target:
-    /// carry the original's mode, owner, times, xattrs and BSD flags across,
-    /// then `rename(2)`. This is the only way a client saves a file, and the
+    /// carry the original's mode, owner, creation time, xattrs and BSD flags
+    /// across, then `rename(2)`. This is the only way a client saves a file, and the
     /// reason a power cut cannot leave half a system plist behind.
     case replaceItem = 11
 
@@ -356,6 +356,9 @@ public enum FilaWireKey {
     public static let bytesTotal = "total"
     public static let itemsDone = "idone"
     public static let itemsTotal = "itotal"
+    /// A job's completion: `JobEvent.completed`'s skipped members. Absent
+    /// from an older daemon's message, which reads as none.
+    public static let skippedItems = "nskip"
     public static let installRoot = "root"
     public static let overrideGuard = "override"
     public static let details = "details"
@@ -364,6 +367,9 @@ public enum FilaWireKey {
     public static let attributeName = "aname"
     public static let attributeValue = "avalue"
     public static let attributes = "attrs"
+    /// `setAttributes`' reply: `AttributeOutcome.unchangedSharedFiles`.
+    /// Absent from an older daemon's reply, which reads as none.
+    public static let unchangedSharedFiles = "nshared"
     public static let nodeKind = "nkind"
     public static let linkTarget = "ltarget"
     public static let useTrash = "trash"
@@ -395,6 +401,10 @@ public enum FilaWireKey {
     public static let logLevel = "llvl"
     public static let logRecords = "lrec"
     public static let logDropped = "ldrop"
+    /// `FilaLog.instance` of the daemon that answered, and, on a poll, of the
+    /// one the cursor was read from. Absent on both sides of an older peer,
+    /// which then pages by the cursor alone as it always did.
+    public static let logInstance = "linst"
 
     public static let terminalIdentifier = "term"
     public static let terminalExited = "termExited"

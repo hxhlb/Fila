@@ -22,6 +22,10 @@ final class AudioNowPlayingSession {
     private var observations: [NSKeyValueObservation] = []
     private var notifications: [NSObjectProtocol] = []
     private var metadataTask: Task<Void, Never>?
+    /// A resume waiting on the audio session. Playback starts only while this
+    /// is still the token it was given: a pause, a stop or a second toggle in
+    /// the meantime clears it, and the late activation then plays nothing.
+    private var pendingResume: UUID?
 
     init(player: AVPlayer, asset: AVAsset, fileName: String) {
         self.player = player
@@ -82,14 +86,19 @@ final class AudioNowPlayingSession {
     }
 
     func stop() {
-        player.pause()
+        pause()
         Self.release(id, deactivateAudio: true)
+    }
+
+    private func pause() {
+        pendingResume = nil
+        player.pause()
     }
 
     /// Native video playback keeps AVKit's own Now Playing integration. Yield
     /// before it starts so a late music metadata load cannot overwrite it.
     static func videoBeganPlayback(_ controller: AVPlayerViewController) {
-        owner?.player.pause()
+        owner?.pause()
         if let ownerID {
             release(ownerID)
         }
@@ -110,7 +119,7 @@ final class AudioNowPlayingSession {
 
     private func claim() {
         guard Self.ownerID != id else { return }
-        Self.owner?.player.pause()
+        Self.owner?.pause()
         Self.videoController?.updatesNowPlayingInfoCenter = false
         Self.videoController?.player?.pause()
         Self.videoController = nil
@@ -119,8 +128,7 @@ final class AudioNowPlayingSession {
         }
         Self.owner = self
         Self.ownerID = id
-        try? AVAudioSession.sharedInstance().setCategory(.playback)
-        try? AVAudioSession.sharedInstance().setActive(true)
+        AudioSessionActivation.activate()
         installCommands()
     }
 
@@ -141,7 +149,7 @@ final class AudioNowPlayingSession {
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         if deactivateAudio {
-            try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+            AudioSessionActivation.deactivate()
         }
     }
 
@@ -153,12 +161,12 @@ final class AudioNowPlayingSession {
         {
             // Resume stays an explicit user action: a delayed interruption-end
             // callback must not restart a document the user paused meanwhile.
-            player.pause()
+            pause()
         } else if notification.name == AVAudioSession.routeChangeNotification,
                   let raw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
                   AVAudioSession.RouteChangeReason(rawValue: raw) == .oldDeviceUnavailable
         {
-            player.pause()
+            pause()
         }
         publish()
     }
@@ -264,12 +272,14 @@ final class AudioNowPlayingSession {
     private func perform(_ action: Action) {
         switch action {
         case .play: resume()
-        case .pause: player.pause()
+        case .pause: pause()
         case .toggle:
-            if player.rate == 0 {
+            // A resume still waiting on the session counts as playing, so the
+            // second press of a quick double toggle cancels it.
+            if player.rate == 0, pendingResume == nil {
                 resume()
             } else {
-                player.pause()
+                pause()
             }
         case .stop: stop()
         case let .seek(seconds): seek(to: seconds)
@@ -279,11 +289,18 @@ final class AudioNowPlayingSession {
     }
 
     private func resume() {
-        try? AVAudioSession.sharedInstance().setActive(true)
+        guard pendingResume == nil else { return }
         if let duration, player.currentTime().seconds >= duration {
             seek(to: 0)
         }
-        player.play()
+        let token = UUID()
+        pendingResume = token
+        AudioSessionActivation.activate { [weak self] in
+            guard let self, pendingResume == token else { return }
+            pendingResume = nil
+            guard Self.ownerID == id else { return }
+            player.play()
+        }
     }
 
     private func seek(to seconds: Double) {

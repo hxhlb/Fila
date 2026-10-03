@@ -292,9 +292,9 @@ final class CompressViewController: UIViewController {
                 }
                 password = confirmed
                 apply()
-            }
+            }.typingLiterally()
             present(second, animated: true)
-        }
+        }.typingLiterally()
         present(first, animated: true)
     }
 
@@ -311,7 +311,7 @@ final class CompressViewController: UIViewController {
     @objc private func commit() {
         view.endEditing(true)
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !trimmed.contains("/"), !trimmed.contains("\0"), trimmed != ".", trimmed != ".." else {
+        guard FilaGuard.isComponent(trimmed) else {
             FeedbackAlert.show(
                 String(localized: "Invalid Name"),
                 message: String(

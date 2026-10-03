@@ -252,7 +252,11 @@ final class SaveDestinationViewController: UIViewController {
     }
 
     private func refreshActions() {
-        confirmItem.isEnabled = availability == .ready && (selection.name.map(Self.isValidName) ?? true)
+        // Nothing enters the trash but a delete: an item saved or moved there
+        // would have no origin to be put back to. A link may still point there.
+        let inTrash = FileActions.isTrashDestination(directory.path)
+        confirmItem.isEnabled = availability == .ready && !(inTrash && !selection.picksFiles)
+            && (selection.name.map(Self.isValidName) ?? true)
         cancelItem.isEnabled = availability != .creatingFolder
         menuItem.isEnabled = availability != .creatingFolder
         menuItem.menu = UIMenu(children: FilaMenu.groups([
@@ -269,7 +273,7 @@ final class SaveDestinationViewController: UIViewController {
             UIAction(
                 title: String(localized: "New Folder"),
                 image: UIImage(systemName: "folder.badge.plus"),
-                attributes: availability == .ready ? [] : .disabled,
+                attributes: availability == .ready && !inTrash ? [] : .disabled,
             ) { [weak self] _ in
                 self?.promptNewFolder()
             },
@@ -299,11 +303,20 @@ final class SaveDestinationViewController: UIViewController {
         let link = link
         let path = directory.path
         work = Task { [weak self] in
+            var cursor: UInt64 = 0
+            // Left part-way — cancelled, a newer load, an error — the
+            // daemon would hold the listing open until it idled out.
+            defer {
+                if cursor != 0 {
+                    let open = cursor
+                    Task { try? await link.closeDirectory(cursor: open) }
+                }
+            }
             do {
-                var cursor: UInt64 = 0
                 var received: [FileNode] = []
                 repeat {
                     let page = try await link.list(directory: path, cursor: cursor)
+                    cursor = page.cursor
                     guard !Task.isCancelled, let self else { return }
                     let picksFiles = selection.picksFiles
                     received.append(contentsOf: page.entries.filter { node in
@@ -316,12 +329,15 @@ final class SaveDestinationViewController: UIViewController {
                         }
                         return picksFiles
                     })
-                    cursor = page.cursor
                 } while cursor != 0
                 guard let self, !Task.isCancelled else {
                     return
                 }
-                folders = received.sorted {
+                // One name per row, as the browser's arrangement keeps it: a
+                // live directory can hand the same name over twice while it
+                // is paged, and two equal identifiers in a snapshot crash.
+                var seen: Set<String> = []
+                folders = received.filter { seen.insert($0.name).inserted }.sorted {
                     $0.isNavigable != $1.isNavigable
                         ? $0.isNavigable
                         : $0.name.localizedStandardCompare($1.name) == .orderedAscending
@@ -391,7 +407,7 @@ final class SaveDestinationViewController: UIViewController {
     }
 
     private static func isValidName(_ name: String) -> Bool {
-        !name.isEmpty && name != "." && name != ".." && !name.contains("/") && !name.contains("\0")
+        FilaGuard.isComponent(name)
     }
 
     private func promptNewFolder() {
@@ -408,7 +424,7 @@ final class SaveDestinationViewController: UIViewController {
                 return
             }
             createFolder(named: name)
-        }
+        }.typingLiterally()
         present(alert, animated: true)
     }
 
@@ -422,7 +438,7 @@ final class SaveDestinationViewController: UIViewController {
         ) { [weak self] path in
             guard let self, path.hasPrefix("/") else { return }
             showAncestor(URL(fileURLWithPath: path, isDirectory: true))
-        }
+        }.typingLiterally()
         present(alert, animated: true)
     }
 
@@ -430,11 +446,14 @@ final class SaveDestinationViewController: UIViewController {
         work?.cancel()
         availability = .creatingFolder
         refreshActions()
-        let url = directory.appendingPathComponent(name, isDirectory: true)
+        // Joined as a string: `URL.appendingPathComponent` decomposes the name
+        // to NFD, and the folder would be stored in a form nobody typed.
+        let path = (directory.path as NSString).appendingPathComponent(name)
+        let url = URL(fileURLWithPath: path, isDirectory: true)
         let link = link
         work = Task { [weak self] in
             do {
-                try await link.create(.directory, at: url.path)
+                try await link.create(.directory, at: path)
                 guard let self else { return }
                 load()
                 if viewIfLoaded?.window != nil, navigationController?.topViewController === self {

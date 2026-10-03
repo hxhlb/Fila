@@ -385,12 +385,17 @@ _packages-full:
 _packages-sandboxed:
 	"$(IPA_PACKAGER)" "$(SANDBOX_APP_BUNDLE)" ipa "$(IPA_OUTPUT)" "$(APP_VERSION)"
 
+# One single-quoted shell word, whatever the value holds: a quote, a `$` or a
+# backtick in a password is part of the password, not of the command line.
+shell_word = '$(subst ','\'',$(1))'
+
 # Build for FLAVOR and install it on the device behind `iproxy $(DEVICE_PORT) 22`.
 # The package's postinst boots the daemon; uikittools triggers register the app.
-# Neither step is duplicated here.
+# Neither step is duplicated here. Not echoed: the line carries the password.
 install: deb
-	DEVICE_HOST="$(DEVICE_HOST)" DEVICE_PORT="$(DEVICE_PORT)" DEVICE_USER="$(DEVICE_USER)" \
-	DEVICE_PASSWORD="$(DEVICE_PASSWORD)" "$(DEVICE_INSTALLER)" "$(DEB_OUTPUT)"
+	@DEVICE_HOST=$(call shell_word,$(DEVICE_HOST)) DEVICE_PORT=$(call shell_word,$(DEVICE_PORT)) \
+	DEVICE_USER=$(call shell_word,$(DEVICE_USER)) DEVICE_PASSWORD=$(call shell_word,$(DEVICE_PASSWORD)) \
+	"$(DEVICE_INSTALLER)" "$(DEB_OUTPUT)"
 
 # Development only: Xcode owns incremental rebuilds; package signing and its
 # entitlement checks still run. `build`, `deb`, and `install` retain all gates.

@@ -15,8 +15,9 @@ import Testing
 @Suite("Backend selection")
 struct BackendSelectionTests {
     /// A `<prefix>/Applications/Fila.app` layout, optionally with the daemon
-    /// installed beside it — the deb's shape, in a temporary directory.
-    private func layout(withDaemon: Bool) -> URL {
+    /// installed beside it — the deb's shape, in a temporary directory the
+    /// caller removes.
+    private func layout(withDaemon: Bool) -> (prefix: String, bundle: URL) {
         let prefix = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("fila-install-\(UInt32.random(in: 0 ..< .max))", isDirectory: true)
         let bundle = prefix.appendingPathComponent("Applications/Fila.app", isDirectory: true)
@@ -26,17 +27,21 @@ struct BackendSelectionTests {
             try? FileManager.default.createDirectory(at: libexec, withIntermediateDirectories: true)
             FileManager.default.createFile(atPath: libexec.appendingPathComponent("filad").path, contents: Data())
         }
-        return bundle
+        return (prefix.path, bundle)
     }
 
     @Test
     func `A deb layout with the daemon beside the app is a daemon install`() {
-        #expect(DaemonInstallation.isInstalled(besideBundleAt: layout(withDaemon: true)))
+        let installed = layout(withDaemon: true)
+        defer { removefile(installed.prefix, nil, removefile_flags_t(REMOVEFILE_RECURSIVE)) }
+        #expect(DaemonInstallation.isInstalled(besideBundleAt: installed.bundle))
     }
 
     @Test
     func `The same layout without the binary is not`() {
-        #expect(!DaemonInstallation.isInstalled(besideBundleAt: layout(withDaemon: false)))
+        let installed = layout(withDaemon: false)
+        defer { removefile(installed.prefix, nil, removefile_flags_t(REMOVEFILE_RECURSIVE)) }
+        #expect(!DaemonInstallation.isInstalled(besideBundleAt: installed.bundle))
     }
 
     /// TrollStore and every sideloading tool land here, and the simulator in

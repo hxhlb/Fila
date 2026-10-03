@@ -27,6 +27,10 @@ public final class FileJob: @unchecked Sendable {
     /// cannot land on whatever process inherits the number.
     private var helper: pid_t = 0
 
+    /// Members an extraction's helper left out, from its last line; zero for
+    /// every other job. Read it once `run` has returned, on the thread that ran it.
+    public internal(set) var skippedItems: Int64 = 0
+
     public init(request: JobRequest, operations: FileOperations) {
         self.request = request
         self.operations = operations
@@ -35,12 +39,17 @@ public final class FileJob: @unchecked Sendable {
     /// Asks the job to stop at its next callback. Safe from any thread; the job
     /// itself runs on one. A helper is hung up and, if it ignores that, killed.
     public func cancel() {
+        // The signal goes out under the lock `detachHelper` takes before the
+        // pid is reaped, so it reaches the helper or its zombie and never a
+        // process that inherited the number.
         cancellation.lock()
         cancelled = true
         let pid = helper
+        if pid > 0 {
+            kill(pid, SIGTERM)
+        }
         cancellation.unlock()
         guard pid > 0 else { return }
-        kill(pid, SIGTERM)
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 5) { [weak self] in
             self?.killHelper(pid)
         }
@@ -65,11 +74,10 @@ public final class FileJob: @unchecked Sendable {
 
     private func killHelper(_ pid: pid_t) {
         cancellation.lock()
-        let live = helper == pid
-        cancellation.unlock()
-        if live {
+        if helper == pid {
             kill(pid, SIGKILL)
         }
+        cancellation.unlock()
     }
 
     public var isCancelled: Bool {
@@ -328,14 +336,34 @@ public final class FileJob: @unchecked Sendable {
     ) throws {
         // Publish only a complete copy. Cancellation or a failed read leaves
         // the previous destination intact, including when overwrite was approved.
-        let temporary = try operations.resolveForWrite(
-            FilaPath.join(FilaPath.directory(of: target), ".fila-copy-\(UUID().uuidString)"),
-        )
+        let (directory, targetName) = filaSplit(target)
+        let temporaryName = ".fila-copy-\(UUID().uuidString)"
+        let temporary = try operations.resolveForWrite(FilaPath.join(directory, temporaryName))
+        // The destination folder, opened again now and held: an ancestor
+        // swapped for a link since the guard decided fails here with ELOOP,
+        // and every step below that names the temporary or the target is
+        // relative to this descriptor, so the approved replacement lands on
+        // the item the guard saw and on nothing else.
+        let into = try filaOpenDirectory(directory)
+        defer { close(into) }
         do {
             // A clone is instant on APFS; copyfile handles other filesystems
-            // and trees while keeping metadata and memory use bounded.
-            let cloned = clonefile(source, temporary, UInt32(CLONE_NOFOLLOW)) == 0
+            // and trees while keeping metadata and memory use bounded. A plain
+            // clone drops the source's ACLs, so CLONE_ACL asks for them — for a
+            // directory the kernel honours it on the root alone. A kernel older
+            // than that flag refuses it with EINVAL, and gets the clone it
+            // always made. The source is read by path: reading is not what the
+            // guard decides, and its folder may allow search but not listing.
+            var cloned = clonefileat(AT_FDCWD, source, into, temporaryName, UInt32(CLONE_NOFOLLOW | CLONE_ACL)) == 0
+            if !cloned, Darwin.errno == EINVAL {
+                cloned = clonefileat(AT_FDCWD, source, into, temporaryName, UInt32(CLONE_NOFOLLOW)) == 0
+            }
             if !cloned {
+                // copyfile(3) has no descriptor form for a tree, so this walks
+                // the temporary's path. If that path no longer reaches the
+                // held folder, the copy lands somewhere else, the lookup below
+                // finds nothing under the temporary's name, and nothing is
+                // published.
                 try copyTree(source, to: temporary, tally: tally)
             }
             if isCancelled {
@@ -344,23 +372,33 @@ public final class FileJob: @unchecked Sendable {
             // Like AtomicReplace, defer flags that would prohibit the publication
             // rename until the new item has reached its final name.
             var metadata = stat()
-            try filaCheck(temporary) { lstat(temporary, &metadata) }
+            try filaCheck(temporary) { fstatat(into, temporaryName, &metadata, AT_SYMLINK_NOFOLLOW) }
             let immovable = UInt32(UF_IMMUTABLE | SF_IMMUTABLE | UF_APPEND | SF_APPEND)
             if metadata.st_flags & immovable != 0 {
-                _ = try operations.resolveForWrite(temporary, changesInode: true)
-                try filaCheck(temporary) { lchflags(temporary, metadata.st_flags & ~immovable) }
+                try operations.requireUnshared(metadata, path: temporary)
+                try filaSetFlags(metadata.st_flags & ~immovable, of: temporaryName, in: into, path: temporary)
             }
             try prepare(temporary)
             if isCancelled {
                 throw FilaFailure(code: .cancelled, path: source)
             }
-            try filaCheck(target) { renamex_np(temporary, target, overwrite ? 0 : UInt32(RENAME_EXCL)) }
+            try filaCheck(target) {
+                renameatx_np(into, temporaryName, into, targetName, overwrite ? 0 : UInt32(RENAME_EXCL))
+            }
             if metadata.st_flags & immovable != 0 {
-                try filaCheck(target) { lchflags(target, metadata.st_flags) }
+                try filaSetFlags(metadata.st_flags, of: targetName, in: into, path: target)
             }
             if cloned {
                 tally.finishedItem()
             }
+        } catch var failure as FilaFailure {
+            try operations.discardTemporary(temporary)
+            // The temporary is this job's own hidden name; the user chose the
+            // target, and a failure about the destination names that.
+            if let path = failure.path {
+                failure.path = filaReplacingPrefix(temporary, with: target, in: path)
+            }
+            throw failure
         } catch {
             try operations.discardTemporary(temporary)
             throw error
@@ -368,11 +406,14 @@ public final class FileJob: @unchecked Sendable {
     }
 
     private func move(_ source: String, to target: String, overwrite: Bool, tally: JobTally) throws {
-        if renamex_np(source, target, overwrite ? 0 : UInt32(RENAME_EXCL)) == 0 {
+        // Both ends relative to their parents, opened again now: an ancestor
+        // swapped for a link since the guard decided cannot redirect it.
+        let failure = try filaRename(source, to: target, flags: overwrite ? 0 : UInt32(RENAME_EXCL))
+        if failure == 0 {
             tally.finishedItem()
             return
         }
-        guard Darwin.errno == EXDEV else { throw FilaFailure(errno: Darwin.errno, path: target) }
+        guard failure == EXDEV else { throw FilaFailure(errno: failure, path: target) }
         // Across volumes publish the complete copy before removing the source.
         try copy(source, to: target, overwrite: overwrite, tally: tally)
         if isCancelled {
@@ -403,15 +444,20 @@ public final class FileJob: @unchecked Sendable {
         // copying a link copies the link, and a link at the destination is
         // replaced rather than written through. COPYFILE_RECURSIVE is set even
         // for a single file, so the per-item callbacks that drive progress fire
-        // in both cases.
-        let flags = COPYFILE_ALL | COPYFILE_RECURSIVE | COPYFILE_NOFOLLOW | COPYFILE_EXCL
+        // in both cases. COPYFILE_DATA_SPARSE keeps holes as holes — without it
+        // a 20 GB disk image holding 200 MB is written out in full — and falls
+        // back to a plain copy where either side cannot hold one.
+        let flags = COPYFILE_ALL | COPYFILE_RECURSIVE | COPYFILE_NOFOLLOW | COPYFILE_EXCL | COPYFILE_DATA_SPARSE
         let result = copyfile(source, target, state, copyfile_flags_t(flags))
         // What the callback saw comes first: it stopped the walk deliberately,
         // so the errno left behind is ECANCELED and says nothing useful.
         if let failure = tally.failure {
             throw failure
         }
-        guard result == 0 else { throw FilaFailure(errno: Darwin.errno, path: source) }
+        guard result == 0 else {
+            let code = Darwin.errno
+            throw FilaFailure(errno: code, path: filaFailsWriting(code) ? target : source)
+        }
     }
 
     private func removeTree(_ source: String, tally: JobTally) throws {
@@ -427,6 +473,12 @@ public final class FileJob: @unchecked Sendable {
             UInt32(REMOVEFILE_STATE_CONFIRM_CONTEXT),
             Unmanaged.passUnretained(tally).toOpaque(),
         )
+        // removefile(3) takes a path, and the descriptor form is not part of
+        // what the iOS 15 floor promises. So the parent is proven symlink-free
+        // first: an ancestor swapped for a link since the guard decided fails
+        // here with ELOOP instead of taking a protected node with it. What
+        // remains is the gap between this open and removefile's own lookup.
+        try filaWithDirectory(FilaPath.directory(of: source)) { _ in }
         // REMOVEFILE_RECURSIVE alone: removefile never follows a symlink, so a
         // link is unlinked and whatever it pointed at is left alone.
         try filaCheck(source) { removefile(source, state, removefile_flags_t(REMOVEFILE_RECURSIVE)) }
@@ -469,14 +521,20 @@ public final class FileJob: @unchecked Sendable {
             throw FilaFailure(code: .invalidRequest, systemError: EINVAL, path: source)
         }
         let name = FilaPath.name(of: source)
+        // The rename goes between the two parents, opened again now: an
+        // ancestor swapped for a link since the guard decided cannot send a
+        // protected node into the trash in the source's place.
+        let from = try filaOpenDirectory(FilaPath.directory(of: source))
+        defer { close(from) }
+        let into = try filaOpenDirectory(directory)
+        defer { close(into) }
         for suffix in 0 ..< 1000 {
             if isCancelled {
                 throw FilaFailure(code: .cancelled, path: source)
             }
-            let candidate = try operations.resolveForWrite(
-                FilaPath.join(directory, suffix == 0 ? name : "\(name)-\(suffix)"),
-            )
-            if renamex_np(source, candidate, UInt32(RENAME_EXCL)) == 0 {
+            let trashName = FilaTrash.itemName(name, suffix: suffix)
+            let candidate = try operations.resolveForWrite(FilaPath.join(directory, trashName))
+            if renameatx_np(from, name, into, trashName, UInt32(RENAME_EXCL)) == 0 {
                 // A same-volume rename already preserved the item. Files with
                 // shared inodes or unsupported xattrs remain recoverable by hand.
                 try? recordOrigin(source, on: candidate, keepingExisting: FilaPath.directory(of: source) == directory)
@@ -491,7 +549,7 @@ public final class FileJob: @unchecked Sendable {
             // EXDEV may precede the kernel's collision check. Avoid recopying
             // a large tree for every occupied suffix; publication still uses EXCL.
             var existing = stat()
-            if lstat(candidate, &existing) == 0 {
+            if fstatat(into, trashName, &existing, AT_SYMLINK_NOFOLLOW) == 0 {
                 continue
             }
             guard Darwin.errno == ENOENT else { throw FilaFailure(errno: Darwin.errno, path: candidate) }
@@ -532,7 +590,7 @@ public final class FileJob: @unchecked Sendable {
                 at: trashed,
             )
         } else {
-            try? operations.setAttributes(
+            _ = try? operations.setAttributes(
                 AttributeChange(extendedAttribute: (FilaTrash.jobAttribute, nil)),
                 at: trashed,
             )
@@ -553,7 +611,7 @@ public final class FileJob: @unchecked Sendable {
             guard recorded == Data(identity.uuidString.utf8) else { throw FilaFailure(code: .notFound, path: source) }
         }
         let data = try operations.extendedAttribute(FilaTrash.originAttribute, at: source)
-        guard let origin = String(data: data, encoding: .utf8), origin.hasPrefix("/") else {
+        guard let origin = String(data: data, encoding: .utf8), origin.utf8.first == UInt8(ascii: "/") else {
             throw FilaFailure(errno: ENOATTR, path: source)
         }
         let target = try operations.resolveForWrite(origin)
@@ -572,9 +630,22 @@ public final class FileJob: @unchecked Sendable {
 
     private func clearTrashRecord(at path: String) {
         for name in [FilaTrash.originAttribute, FilaTrash.jobAttribute] {
-            try? operations.setAttributes(AttributeChange(extendedAttribute: (name, nil)), at: path)
+            _ = try? operations.setAttributes(AttributeChange(extendedAttribute: (name, nil)), at: path)
         }
     }
+}
+
+/// `path` with `prefix` — itself, or a directory above it — spelled as
+/// `replacement` instead; any other path unchanged. Compared over UTF-8, as
+/// the kernel splits paths.
+func filaReplacingPrefix(_ prefix: String, with replacement: String, in path: String) -> String {
+    if path == prefix {
+        return replacement
+    }
+    let head = Array((prefix + "/").utf8)
+    let bytes = Array(path.utf8)
+    guard bytes.starts(with: head) else { return path }
+    return replacement + "/" + String(decoding: bytes[head.count...], as: UTF8.self)
 }
 
 /// Whether two paths sit on one device — which is to say whether a move is a

@@ -11,6 +11,7 @@ static inline xpc_type_t fila_xpc_type_array(void) { return XPC_TYPE_ARRAY; }
 static inline xpc_type_t fila_xpc_type_bool(void) { return XPC_TYPE_BOOL; }
 static inline xpc_type_t fila_xpc_type_connection(void) { return XPC_TYPE_CONNECTION; }
 static inline xpc_type_t fila_xpc_type_dictionary(void) { return XPC_TYPE_DICTIONARY; }
+static inline xpc_type_t fila_xpc_type_double(void) { return XPC_TYPE_DOUBLE; }
 static inline xpc_type_t fila_xpc_type_uint64(void) { return XPC_TYPE_UINT64; }
 
 static inline size_t fila_xpc_array_append(void) { return XPC_ARRAY_APPEND; }

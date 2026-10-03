@@ -22,6 +22,9 @@ final class SearchViewController: TabContentViewController {
     private var renderedScope: Scope?
     private var hits: [FileSearchResult] = []
     private var walk: Task<Void, Never>?
+    /// A subtree walk a newer search in this tab stopped; run again when this
+    /// page appears.
+    private var interruptedQuery: String?
     private var query = ""
     private var isSearching = false
     private var failure: String?
@@ -74,6 +77,15 @@ final class SearchViewController: TabContentViewController {
         search.delegate = self
         search.searchBar.delegate = self
         search.searchBar.placeholder = String(localized: "Search file names")
+        // A name is matched as typed: `it's` must not become `it’s`.
+        search.searchBar.searchTextField.do {
+            $0.autocapitalizationType = .none
+            $0.autocorrectionType = .no
+            $0.spellCheckingType = .no
+            $0.smartQuotesType = .no
+            $0.smartDashesType = .no
+            $0.smartInsertDeleteType = .no
+        }
         search.obscuresBackgroundDuringPresentation = false
         search.hidesNavigationBarDuringPresentation = false
         installSearch(search)
@@ -99,7 +111,7 @@ final class SearchViewController: TabContentViewController {
         let cell = UICollectionView.CellRegistration<IconRowCell, FileSearchResult> { [weak self] cell, _, hit in
             cell.configure(
                 name: hit.node.name,
-                detail: self?.scope == .folder ? nil : hit.directory,
+                detail: self?.scope == .folder ? nil : FilePresentation.visibleName(hit.directory),
                 image: FilePresentation.image(for: hit.node),
                 highlight: self?.query,
             )
@@ -134,6 +146,7 @@ final class SearchViewController: TabContentViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        resumeWalk()
         guard !hasActivatedSearch else { return }
         hasActivatedSearch = true
         if (initialQuery ?? "").isEmpty {
@@ -141,6 +154,17 @@ final class SearchViewController: TabContentViewController {
             // presented; activation is what presents it.
             navigationItem.searchController?.isActive = true
             navigationItem.searchController?.searchBar.becomeFirstResponder()
+        }
+    }
+
+    /// From did-appear, not will-appear: an interactive swipe back that is
+    /// cancelled sends both pages `viewWillAppear`, and each would restart
+    /// its walk and stop the other's over a gesture that went nowhere.
+    private func resumeWalk() {
+        if let query = interruptedQuery {
+            start(query)
+        } else if walk != nil, scope == .subfolders {
+            interruptOtherWalks()
         }
     }
 
@@ -198,6 +222,7 @@ final class SearchViewController: TabContentViewController {
         walk = nil
         let searchID = UUID()
         self.searchID = searchID
+        interruptedQuery = nil
         loadingFolderEntries = []
         hits = []
         query = needle
@@ -211,6 +236,9 @@ final class SearchViewController: TabContentViewController {
         }
         apply()
         guard isSearching else { return }
+        if scope == .subfolders {
+            interruptOtherWalks()
+        }
         walk = Task { [weak self, scope] in
             guard let self, !Task.isCancelled, self.searchID == searchID else { return }
             if scope == .folder {
@@ -261,13 +289,17 @@ final class SearchViewController: TabContentViewController {
         }
     }
 
+    /// In the order the folder's own page shows: the arrangement dedups by
+    /// name, leaves hidden entries out unless they are shown, and sorts by
+    /// the browser's key — not in the order the directory was read.
     private func filterFolder(_ entries: [FileNode]) {
-        var names = Set<String>()
-        hits = entries.filter {
-            names.insert($0.name).inserted
-                && (FileSession.shared.showsHidden || !$0.isHidden)
-                && !query.isEmpty && $0.name.localizedStandardContains(query)
-        }.map { FileSearchResult(directory: root, node: $0) }
+        let arrangement = FileArrangement(
+            showsHidden: session.showsHidden,
+            sortKey: session.sortKey,
+            ascending: session.sortAscending,
+        )
+        let matches = query.isEmpty ? [] : entries.filter { $0.name.localizedStandardContains(query) }
+        hits = arrangement.arrange(matches).map { FileSearchResult(directory: root, node: $0) }
         apply()
     }
 
@@ -356,6 +388,23 @@ final class SearchViewController: TabContentViewController {
         loadingFolderEntries = []
         isSearching = false
         updateStatus()
+    }
+
+    /// One subtree walk per tab: the newest search's. A search pushed over
+    /// another — by hand, or by a `fila://search` link, which anything on
+    /// the device can send — stops the walks under it, which start again
+    /// when their page comes back. Without this, every link stacked another
+    /// whole-filesystem walk.
+    private func interruptOtherWalks() {
+        for case let other as SearchViewController in navigationController?.viewControllers ?? [] where other !== self {
+            other.interruptWalk()
+        }
+    }
+
+    private func interruptWalk() {
+        guard walk != nil, scope == .subfolders else { return }
+        stopSearch()
+        interruptedQuery = query
     }
 
     private var status: StatusView.Content? {

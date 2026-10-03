@@ -25,22 +25,68 @@ func emit(_ line: ArchiveHelperLine) {
     output.write(data)
 }
 
+/// A cancel that can arrive before there is a job to cancel: Cancel tapped
+/// while this process is still reading its task.
+final class Cancellation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var requested = false
+    private var job: ArchiveJob?
+
+    func request() {
+        lock.lock()
+        requested = true
+        let job = job
+        lock.unlock()
+        job?.cancel()
+    }
+
+    func attach(_ job: ArchiveJob) {
+        lock.lock()
+        self.job = job
+        let requested = requested
+        lock.unlock()
+        if requested {
+            job.cancel()
+        }
+    }
+}
+
+// Ignored at the signal level and delivered as an event instead, so the job
+// stops at its next chunk and cleans up its temporary rather than leaving one.
+//
+// All of it before standard input is read. SIGTERM is blocked first, so one
+// sent before the source is registered stays pending instead of ending the
+// process; once registration has finished, the source sees every later one,
+// and the pending check below catches any earlier one before `SIG_IGN`
+// discards it.
+let cancellation = Cancellation()
+var terminate = sigset_t()
+sigemptyset(&terminate)
+sigaddset(&terminate, SIGTERM)
+pthread_sigmask(SIG_BLOCK, &terminate, nil)
+let registered = DispatchSemaphore(value: 0)
+let stop = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global(qos: .utility))
+stop.setRegistrationHandler { registered.signal() }
+stop.setEventHandler { cancellation.request() }
+stop.activate()
+registered.wait()
+var pending = sigset_t()
+if sigpending(&pending) == 0, sigismember(&pending, SIGTERM) == 1 {
+    cancellation.request()
+}
+signal(SIGTERM, SIG_IGN)
+pthread_sigmask(SIG_UNBLOCK, &terminate, nil)
+
 guard let task = try? JSONDecoder()
     .decode(ArchiveHelperTask.self, from: FileHandle.standardInput.readDataToEndOfFile())
 else {
-    emit(.completed(FilaFailure(code: .invalidRequest, systemError: EINVAL)))
+    emit(.completed(FilaFailure(code: .invalidRequest, systemError: EINVAL), skipped: 0))
     exit(EX_DATAERR)
 }
 
 let job = ArchiveJob(request: task.request, operations: FileOperations(bootstrapRoot: task.bootstrapRoot))
-
-// Ignored at the signal level and delivered as an event instead, so the job
-// stops at its next chunk and cleans up its temporary rather than leaving one.
-signal(SIGTERM, SIG_IGN)
-let stop = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global(qos: .utility))
-stop.setEventHandler { job.cancel() }
-stop.activate()
+cancellation.attach(job)
 
 let outcome = job.run(report: { emit(.progress($0)) }, note: { emit(.note($0)) })
-emit(.completed(outcome))
+emit(.completed(outcome, skipped: job.skippedItems))
 exit(outcome.code == .success ? EXIT_SUCCESS : EXIT_FAILURE)

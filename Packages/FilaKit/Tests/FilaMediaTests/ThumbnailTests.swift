@@ -70,6 +70,26 @@ struct ThumbnailTests {
         }
     }
 
+    /// A panorama over the pixel ceiling is not a broken file, and the viewer
+    /// must be able to say which one it has.
+    @Test
+    func `An image over the pixel ceiling says it is too large, not unsupported`() throws {
+        try withScratch { directory in
+            // One pixel wider than the ceiling allows, and two rows tall, so
+            // the fixture itself costs nothing to draw.
+            let url = directory.appendingPathComponent("panorama.png")
+            try writePNG(width: 32769, height: 2, to: url)
+            let data = try Data(contentsOf: url)
+            #expect(throws: ImagePreview.TooLarge(width: 32769, height: 2)) {
+                try ImagePreview.decode(data: data)
+            }
+            #expect(ImagePreview.make(data: data) == nil)
+        }
+        #expect(try ImagePreview.decode(data: Data("not a picture".utf8)) == nil)
+        let message = try #require(ImagePreview.TooLarge(width: 32769, height: 2).errorDescription)
+        #expect(message.contains("too large to preview"), "\(message)")
+    }
+
     @Test
     func `An image thumbnail comes back inside the pixel bound`() throws {
         try withScratch { directory in
@@ -77,7 +97,7 @@ struct ThumbnailTests {
             try writePNG(width: 900, height: 300, to: url)
             try withDescriptor(reading: url) { descriptor in
                 let size = try byteCount(of: url)
-                let image = DescriptorImage.thumbnail(descriptor: descriptor, byteCount: size, maxPixelSize: 64)
+                let image = try DescriptorImage.thumbnail(descriptor: descriptor, byteCount: size, maxPixelSize: 64)
                 let thumbnail = try #require(image)
                 #expect(max(thumbnail.width, thumbnail.height) == 64)
                 // Aspect kept: 900x300 is 3:1, so the short edge lands on 21.
@@ -93,7 +113,7 @@ struct ThumbnailTests {
             try writePNG(width: 200, height: 200, to: url)
             let size = try byteCount(of: url)
             let descriptor = try openForReading(url)
-            let image = DescriptorImage.thumbnail(descriptor: descriptor, byteCount: size, maxPixelSize: 32)
+            let image = try DescriptorImage.thumbnail(descriptor: descriptor, byteCount: size, maxPixelSize: 32)
             // Closing here is what a caller does the moment generation returns;
             // a borrowed descriptor would make the next read a wrong picture.
             close(descriptor)
@@ -108,7 +128,7 @@ struct ThumbnailTests {
             try writePDF(to: url)
             try withDescriptor(reading: url) { descriptor in
                 let size = try byteCount(of: url)
-                let page = DescriptorImage.firstPage(descriptor: descriptor, byteCount: size, maxPixelSize: 48)
+                let page = try DescriptorImage.firstPage(descriptor: descriptor, byteCount: size, maxPixelSize: 48)
                 let image = try #require(page)
                 #expect(max(image.width, image.height) == 48)
             }
@@ -121,7 +141,8 @@ struct ThumbnailTests {
             let url = directory.appendingPathComponent("notes.txt")
             try Data("just words".utf8).write(to: url)
             try withDescriptor(reading: url) { descriptor in
-                #expect(DescriptorImage.thumbnail(descriptor: descriptor, byteCount: 10, maxPixelSize: 64) == nil)
+                let image = try DescriptorImage.thumbnail(descriptor: descriptor, byteCount: 10, maxPixelSize: 64)
+                #expect(image == nil)
             }
         }
     }
@@ -212,6 +233,63 @@ struct ThumbnailTests {
             )
             #expect(second != nil, "the refusal must not have been cached")
             #expect(await attempts.value == 2)
+        }
+    }
+
+    /// A `dup` or a read that fails is the process having a bad moment — at
+    /// its descriptor limit, say — and says nothing about the file.
+    @Test
+    func `A failed read is not remembered as a file with no picture`() async throws {
+        try await withScratchAsync { directory in
+            let url = directory.appendingPathComponent("busy.png")
+            try writePNG(width: 120, height: 120, to: url)
+            let size = try byteCount(of: url)
+            let service = ThumbnailService()
+            // Write-only: `fstat` answers and every read fails.
+            let failed = await service.thumbnail(path: url.path, modified: 1, byteCount: size, open: { try openForWriting(url) })
+            #expect(failed == nil)
+            let second = await service.thumbnail(path: url.path, modified: 1, byteCount: size, open: { try openForReading(url) })
+            #expect(second != nil, "the failed read must not have been cached")
+        }
+    }
+
+    @Test
+    func `A provider whose reads fail throws rather than drawing nothing`() throws {
+        try withScratch { directory in
+            let picture = directory.appendingPathComponent("busy.png")
+            let document = directory.appendingPathComponent("busy.pdf")
+            try writePNG(width: 120, height: 120, to: picture)
+            try writePDF(to: document)
+            let pictureDescriptor = try openForWriting(picture)
+            defer { close(pictureDescriptor) }
+            let documentDescriptor = try openForWriting(document)
+            defer { close(documentDescriptor) }
+            #expect(throws: POSIXError.self) {
+                try DescriptorImage.thumbnail(descriptor: pictureDescriptor, byteCount: byteCount(of: picture), maxPixelSize: 32)
+            }
+            #expect(throws: POSIXError.self) {
+                try DescriptorImage.firstPage(descriptor: documentDescriptor, byteCount: byteCount(of: document), maxPixelSize: 32)
+            }
+        }
+    }
+
+    /// Core Graphics decodes a page's images at their declared size before it
+    /// scales them, so a few megabytes of Flate can declare gigabytes. The
+    /// fixture's image declares 81 megapixels and carries almost no bytes.
+    @Test(arguments: [(false, false), (true, false), (false, true)])
+    func `A page whose images declare too much raster is not drawn`(throughForm: Bool, inherited: Bool) throws {
+        try withScratch { directory in
+            func render(width: Int, height: Int) throws -> CGImage? {
+                let url = directory.appendingPathComponent("page-\(width).pdf")
+                try writeImagePDF(to: url, width: width, height: height, throughForm: throughForm, inherited: inherited)
+                return try withDescriptor(reading: url) { descriptor in
+                    try DescriptorImage.firstPage(descriptor: descriptor, byteCount: byteCount(of: url), maxPixelSize: 64)
+                }
+            }
+            let small = try render(width: 64, height: 64)
+            let declared = try render(width: 9000, height: 9000)
+            #expect(small != nil)
+            #expect(declared == nil)
         }
     }
 
@@ -410,6 +488,52 @@ private func writePNG(width: Int, height: Int, to url: URL) throws {
 }
 
 struct FixtureFailed: Error {}
+
+private func openForWriting(_ url: URL) throws -> Int32 {
+    let descriptor = open(url.path, O_WRONLY)
+    guard descriptor >= 0 else { throw OpenFailed(path: url.path, code: errno) }
+    return descriptor
+}
+
+/// One page drawing one greyscale image XObject, written by hand so the
+/// image can declare a size its bytes do not have. `throughForm` draws it
+/// from inside a form XObject; `inherited` puts the resources on the page
+/// tree's root rather than on the page.
+private func writeImagePDF(to url: URL, width: Int, height: Int, throughForm: Bool, inherited: Bool) throws {
+    func stream(_ body: Data, _ dictionary: String) -> Data {
+        var data = Data("<< \(dictionary) /Length \(body.count) >>\nstream\n".utf8)
+        data.append(body)
+        data.append(Data("\nendstream".utf8))
+        return data
+    }
+    let resources = throughForm ? "<< /XObject << /F 5 0 R >> >>" : "<< /XObject << /I 6 0 R >> >>"
+    let objects = [
+        Data("<< /Type /Catalog /Pages 2 0 R >>".utf8),
+        Data("<< /Type /Pages /Kids [3 0 R] /Count 1\(inherited ? " /Resources \(resources)" : "") >>".utf8),
+        Data("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100]\(inherited ? "" : " /Resources \(resources)") /Contents 4 0 R >>".utf8),
+        stream(Data("q 200 0 0 100 0 0 cm /\(throughForm ? "F" : "I") Do Q".utf8), ""),
+        stream(Data("/I Do".utf8), "/Type /XObject /Subtype /Form /BBox [0 0 1 1] /Resources << /XObject << /I 6 0 R >> >>"),
+        stream(
+            Data(repeating: 0x80, count: min(width * height, 4096)),
+            "/Type /XObject /Subtype /Image /Width \(width) /Height \(height) /ColorSpace /DeviceGray /BitsPerComponent 8",
+        ),
+    ]
+    var pdf = Data("%PDF-1.4\n".utf8)
+    var offsets: [Int] = []
+    for (index, object) in objects.enumerated() {
+        offsets.append(pdf.count)
+        pdf.append(Data("\(index + 1) 0 obj\n".utf8))
+        pdf.append(object)
+        pdf.append(Data("\nendobj\n".utf8))
+    }
+    let table = pdf.count
+    pdf.append(Data("xref\n0 \(objects.count + 1)\n0000000000 65535 f \n".utf8))
+    for offset in offsets {
+        pdf.append(Data(String(format: "%010d 00000 n \n", offset).utf8))
+    }
+    pdf.append(Data("trailer\n<< /Size \(objects.count + 1) /Root 1 0 R >>\nstartxref\n\(table)\n%%EOF\n".utf8))
+    try pdf.write(to: url)
+}
 
 private func writePDF(to url: URL, rotate: Int = 0) throws {
     var box = CGRect(x: 0, y: 0, width: 200, height: 100)

@@ -25,25 +25,31 @@ public enum FilaPath {
         // working directory is not something either side should be reasoning
         // about. Embedded NUL would make C syscalls use a different name from
         // the complete Swift string that the guard checked.
-        guard path.hasPrefix("/"), !path.utf8.contains(0) else {
+        guard path.utf8.first == slash, !path.utf8.contains(0) else {
             throw FilaFailure(code: .invalidRequest, systemError: EINVAL, path: path)
         }
 
-        var trimmed = path
-        while trimmed.count > 1, trimmed.hasSuffix("/") {
+        var trimmed = path.utf8[...]
+        while trimmed.count > 1, trimmed.last == slash {
             trimmed.removeLast()
         }
-        guard trimmed != "/" else { return "/" }
+        guard trimmed.count > 1 else { return "/" }
+        let whole = String(decoding: trimmed, as: UTF8.self)
 
-        let separator = trimmed.lastIndex(of: "/")!
-        let leaf = String(trimmed[trimmed.index(after: separator)...])
+        let leaf = name(of: whole)
         // `.` and `..` do not name a node, so there is nothing to hold back
         // from `realpath`.
-        guard leaf != ".", leaf != ".." else { return try resolve(trimmed) }
+        guard leaf != ".", leaf != ".." else { return try resolve(whole) }
 
-        let parent = separator == trimmed.startIndex ? "/" : String(trimmed[..<separator])
-        return try join(resolve(parent), leaf)
+        return try join(resolve(directory(of: whole)), leaf)
     }
+
+    /// The kernel splits a path on the byte 0x2F and nothing else. A Swift
+    /// `Character` does not: "/" followed by U+0301, a ZWJ or a variation
+    /// selector is one grapheme that is not equal to "/", so a name that
+    /// starts with one would be glued to its parent. Every split here is
+    /// over UTF-8 for that reason.
+    private static let slash = UInt8(ascii: "/")
 
     /// `realpath(3)`. Everything it is given must exist.
     public static func resolve(_ path: String) throws -> String {
@@ -60,16 +66,18 @@ public enum FilaPath {
 
     /// The directory an already-canonical path sits in. `/` is its own parent.
     public static func directory(of path: String) -> String {
-        guard let separator = path.lastIndex(of: "/"), separator != path.startIndex else { return "/" }
-        return String(path[..<separator])
+        let bytes = path.utf8
+        guard let separator = bytes.lastIndex(of: slash), separator != bytes.startIndex else { return "/" }
+        return String(decoding: bytes[..<separator], as: UTF8.self)
     }
 
     /// The last component of an already-canonical path. The volume root is its
     /// own name, because the alternative is an empty string in the one place a
     /// browser has to print something.
     public static func name(of path: String) -> String {
-        guard path != "/", let separator = path.lastIndex(of: "/") else { return path }
-        return String(path[path.index(after: separator)...])
+        let bytes = path.utf8
+        guard path != "/", let separator = bytes.lastIndex(of: slash) else { return path }
+        return String(decoding: bytes[bytes.index(after: separator)...], as: UTF8.self)
     }
 
     /// A child of `directory`, without the doubled separator that `"/" + name`

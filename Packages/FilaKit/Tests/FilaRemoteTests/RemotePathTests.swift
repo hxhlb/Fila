@@ -29,6 +29,16 @@ struct RemotePathTests {
     }
 
     @Test
+    func `A slash glued to a combining mark is still a slash`() {
+        // "/" plus U+0301 is one Character that is not "/": split or checked
+        // by Character, `..` and `\u{301}x` would pass as one name.
+        #expect(RemotePath.components(of: "/a/../\u{301}x") == nil)
+        #expect(RemotePath.components(of: "/a/%2E%2E%2F%CC%81x") == nil)
+        #expect(RemotePath.components(of: "/a/b%2F%CC%81c") == nil)
+        #expect(RemotePath.components(of: "/a/\u{301}b") == ["a", "\u{301}b"])
+    }
+
+    @Test
     func `Stays under the served root`() {
         #expect(RemotePath.filesystemPath(for: "/", root: "/private/tmp/x") == "/private/tmp/x")
         #expect(RemotePath.filesystemPath(for: "/a/b", root: "/private/tmp/x") == "/private/tmp/x/a/b")
@@ -44,12 +54,38 @@ struct RemotePathTests {
     }
 
     @Test
+    func `A URL in the query is not the target's scheme`() {
+        // Read as absolute form, this named `/victim.txt` — and a DELETE of
+        // `keep.txt` deleted the wrong file.
+        #expect(RemotePath.components(of: "/keep.txt?ref=http://h/victim.txt") == ["keep.txt"])
+        #expect(RemotePath.components(of: "/dir?x=http://h") == ["dir"])
+        #expect(RemotePath.components(of: "/a#http://h/b") == ["a"])
+        // A path segment that merely contains one is a name, not an authority.
+        #expect(RemotePath.components(of: "/a/http://h/b") == ["a", "http:", "h", "b"])
+        // An authority followed straight by a query is the collection root.
+        #expect(RemotePath.components(of: "http://h?x=/y") == [])
+    }
+
+    @Test
     func `Encodes an href a component at a time, separators included`() {
         #expect(RemotePath.href(for: "/a/b c", root: "/", isCollection: false) == "/a/b%20c")
         #expect(RemotePath.href(for: "/a/b", root: "/", isCollection: true) == "/a/b/")
         #expect(RemotePath.href(for: "/", root: "/", isCollection: true) == "/")
         #expect(RemotePath.href(for: "/tmp/x/a", root: "/tmp/x", isCollection: false) == "/a")
         #expect(RemotePath.escape("a&b?c#d") == "a%26b%3Fc%23d")
+    }
+
+    @Test
+    func `An href the server publishes reads back as the path it was made from`() {
+        // A name that starts with a combining mark: split by Character, its
+        // slash would be escaped into the name as %2F, and refused coming back.
+        for (path, root) in [("/r/\u{301}x", "/r"), ("/r/d/\u{301}x/y", "/r"), ("/\u{301}x", "/")] {
+            let href = RemotePath.href(for: path, root: root, isCollection: false)
+            #expect(!href.contains("%2F"))
+            #expect(RemotePath.filesystemPath(for: href, root: root) == path)
+        }
+        // The absolute form a Destination header carries, unescaped.
+        #expect(RemotePath.components(of: "http://h/\u{301}x/y") == ["\u{301}x", "y"])
     }
 }
 
@@ -246,6 +282,22 @@ struct AuthenticationTests {
         #expect(offered[0].hasPrefix("Digest "))
         #expect(offered[1].hasPrefix("Basic "))
         #expect(offered[0].contains("qop=\"auth\""))
+    }
+
+    @Test
+    func `Only a nonce the server no longer knows is called stale`() {
+        // `stale=true` tells a client its password was fine and only the nonce
+        // was old, so it retries silently with the same password. Said to a
+        // wrong password under a live nonce, that is a loop with no prompt.
+        let live = nonces.issue()
+        let wrong = request(digest(user: "fila", password: "wrong", method: "GET", uri: "/", nonce: live))
+        #expect(!HTTPAuthentication.challenges(nonces: nonces, for: wrong)[0].contains("stale=true"))
+
+        let forgotten = request(digest(user: "fila", password: "s3cret", method: "GET", uri: "/", nonce: "expired"))
+        #expect(HTTPAuthentication.challenges(nonces: nonces, for: forgotten)[0].contains("stale=true"))
+
+        // No Digest attempt at all is not stale either.
+        #expect(!HTTPAuthentication.challenges(nonces: nonces, for: request(nil))[0].contains("stale=true"))
     }
 
     @Test

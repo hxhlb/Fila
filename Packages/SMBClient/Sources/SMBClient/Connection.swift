@@ -16,6 +16,15 @@ public class Connection: @unchecked Sendable {
 
     private let semaphore = Semaphore(value: 1)
 
+    // Fila: `Header` reads 64 bytes unchecked, every success response at
+    // least its StructureSize after it (SET_INFO's body is the smallest, 2
+    // bytes), and `ErrorResponse` 4 bytes of body. A message shorter than
+    // what will be read from it, from a broken or hostile server, is
+    // refused instead of trapping the process.
+    private static let headerSize = 64
+    private static let smallestSuccess = 64 + 2
+    private static let smallestError = 64 + 4
+
     public var state: NWConnection.State {
         connection.state
     }
@@ -180,6 +189,12 @@ public class Connection: @unchecked Sendable {
                         var header: Header
                         var response = Data()
                         repeat {
+                            // Fila: the next reply starts where the last one
+                            // said; one that does not fit is refused unread.
+                            guard data.count - offset >= Self.headerSize else {
+                                completion(.failure(ConnectionError.malformedResponse))
+                                return
+                            }
                             header = reader.read()
 
                             switch NTStatus(header.status) {
@@ -188,6 +203,10 @@ public class Connection: @unchecked Sendable {
                                 .moreProcessingRequired,
                                 .noMoreFiles,
                                 .endOfFile:
+                                guard data.count - offset >= Self.smallestSuccess else {
+                                    completion(.failure(ConnectionError.malformedResponse))
+                                    return
+                                }
                                 response += data
                             case .pending:
                                 if self.buffer.count >= 4 {
@@ -202,6 +221,10 @@ public class Connection: @unchecked Sendable {
                                     let data = transportPacket.smb2Message
                                     self.buffer = Data(self.buffer.suffix(from: 4 + length))
 
+                                    guard data.count >= Self.headerSize else {
+                                        completion(.failure(ConnectionError.malformedResponse))
+                                        return
+                                    }
                                     let reader = ByteReader(data)
                                     let header: Header = reader.read()
 
@@ -211,8 +234,16 @@ public class Connection: @unchecked Sendable {
                                         .moreProcessingRequired,
                                         .noMoreFiles,
                                         .endOfFile:
+                                        guard data.count >= Self.smallestSuccess else {
+                                            completion(.failure(ConnectionError.malformedResponse))
+                                            return
+                                        }
                                         response += data
                                     default:
+                                        guard data.count >= Self.smallestError else {
+                                            completion(.failure(ConnectionError.malformedResponse))
+                                            return
+                                        }
                                         completion(.failure(ErrorResponse(data: data)))
                                         return
                                     }
@@ -221,6 +252,10 @@ public class Connection: @unchecked Sendable {
                                     return
                                 }
                             default:
+                                guard data.count - offset >= Self.smallestError else {
+                                    completion(.failure(ConnectionError.malformedResponse))
+                                    return
+                                }
                                 completion(.failure(ErrorResponse(data: Data(data[offset...]))))
                                 return
                             }
@@ -272,4 +307,6 @@ public enum ConnectionError: Error {
     case disconnected
     case cancelled
     case unknown
+    // Fila: a reply whose sizes or offsets point outside itself.
+    case malformedResponse
 }

@@ -36,7 +36,9 @@ ssh_options=(
 
 if [ -n "$password" ]; then
     command -v sshpass >/dev/null || { echo "error: DEVICE_PASSWORD is set but sshpass is not installed (install it with your preferred package manager)" >&2; exit 69; }
-    run_ssh() { sshpass -p "$password" ssh "${ssh_options[@]}" -p "$port" "$user@$host" "$@"; }
+    # Through the environment, never `-p`: an argument is on the process list
+    # for anyone on the Mac to read until sshpass overwrites it.
+    run_ssh() { SSHPASS="$password" sshpass -e ssh "${ssh_options[@]}" -p "$port" "$user@$host" "$@"; }
 else
     run_ssh() { ssh "${ssh_options[@]}" -p "$port" "$user@$host" "$@"; }
 fi

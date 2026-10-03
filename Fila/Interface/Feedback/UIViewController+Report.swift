@@ -29,7 +29,7 @@ extension UIViewController {
 
     private static func failureMessage(for failure: FilaFailure) -> String {
         var lines = [FailureMessage.text(for: failure)]
-        if let path = failure.path {
+        if let path = failure.path, !path.isEmpty {
             lines.append(path)
         }
         return lines.joined(separator: "\n\n")

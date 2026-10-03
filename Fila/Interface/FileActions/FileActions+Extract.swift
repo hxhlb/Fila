@@ -42,6 +42,9 @@ extension FileActions {
     ///   real writes.
     /// - `encrypted`: the listing already knows a password is needed. Without
     ///   a listing the job finds out, and the password is asked for then.
+    /// - `keepingAlive`: whatever owns `archive` when it is a staged copy,
+    ///   held until the job and any retry of it are over — the helper opens
+    ///   the archive only when the job starts.
     func extract(
         _ archive: String,
         members: [ArchiveSelection]? = nil,
@@ -49,13 +52,17 @@ extension FileActions {
         estimate: ArchiveSpaceEstimate? = nil,
         encrypted: Bool = false,
         password: String? = nil,
+        keepingAlive owner: (AnyObject & Sendable)? = nil,
     ) {
         let destination = destination ?? (archive as NSString).deletingLastPathComponent
         let extraction = Extraction(archive: archive, members: members, destination: destination)
         guard !Self.extracting.contains(extraction) else { return }
         if encrypted, password == nil {
             return promptArchivePassword { [self] password in
-                extract(archive, members: members, into: destination, estimate: estimate, password: password)
+                extract(
+                    archive, members: members, into: destination, estimate: estimate, password: password,
+                    keepingAlive: owner,
+                )
             }
         }
         presenter?.setEditing(false, animated: true)
@@ -66,7 +73,7 @@ extension FileActions {
                 if let estimate, let warning = try? await spaceWarning(for: estimate, at: destination) {
                     Self.extracting.remove(extraction)
                     return confirmLowSpace(warning) { [self] in
-                        extract(archive, members: members, into: destination, password: password)
+                        extract(archive, members: members, into: destination, password: password, keepingAlive: owner)
                     }
                 }
                 let cover = jobCover()
@@ -92,7 +99,10 @@ extension FileActions {
                         case .success, .cancelled: break
                         case .wrongPassword:
                             promptArchivePassword { [self] password in
-                                extract(archive, members: members, into: destination, password: password)
+                                extract(
+                                    archive, members: members, into: destination, password: password,
+                                    keepingAlive: owner,
+                                )
                             }
                         default: report(outcome)
                         }
@@ -118,7 +128,27 @@ extension FileActions {
             guard !password.isEmpty else { return }
             handler(password)
         }
+        Self.concealEntry(in: alert)
         presenter.present(alert, animated: true)
+    }
+
+    /// The input card has no secure mode, so its one field is found and made
+    /// one: a password shown in the clear lands in screenshots and recordings
+    /// and in the keyboard's learned words. The card makes its content child
+    /// and loads that child's view when it is made, so the field exists
+    /// before it is presented and nothing here loads a view early.
+    private static func concealEntry(in alert: UIViewController) {
+        var pending = alert.children.compactMap(\.viewIfLoaded)
+        while let view = pending.popLast() {
+            if let field = view as? UITextField {
+                field.isSecureTextEntry = true
+                field.textContentType = .password
+                field.autocorrectionType = .no
+                field.spellCheckingType = .no
+                return
+            }
+            pending.append(contentsOf: view.subviews)
+        }
     }
 
     /// The sentence to show when `estimate` does not comfortably fit, or nil.

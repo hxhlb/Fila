@@ -119,10 +119,20 @@ final class ApplicationListViewController: BackendListViewController<InstalledAp
         collectionView.delegate = self
         collectionView.keyboardDismissMode = .onDrag
 
-        NotificationCenter.default.addObserver(
+        becameActive = NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main,
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.backend.catalogChanged() }
+        }
+    }
+
+    /// A block observer outlives its screen unless removed: every page ever
+    /// opened would leave its registration behind.
+    private var becameActive: NSObjectProtocol?
+
+    deinit {
+        if let becameActive {
+            NotificationCenter.default.removeObserver(becameActive)
         }
     }
 

@@ -91,7 +91,7 @@ final class Harness {
         guard var components = URLComponents(string: "http://127.0.0.1:\(port)"),
               let requestTarget = URLComponents(string: target),
               requestTarget.scheme == nil, requestTarget.host == nil,
-              requestTarget.fragment == nil, requestTarget.path.hasPrefix("/")
+              requestTarget.fragment == nil, requestTarget.percentEncodedPath.hasPrefix("/")
         else {
             throw HarnessFailure.badURL
         }
@@ -607,6 +607,27 @@ struct ServerTests {
         ])
         #expect(replaced.status == 204)
         #expect(harness.scratch.contents("blocker.txt") == "moved")
+    }
+
+    /// RFC 4918 answers a move that cannot be made with 403, and the kernel's
+    /// EINVAL for a folder moved into itself is that, not a server fault.
+    @Test
+    func `MOVE of a folder into itself, or of the share itself, is refused rather than failing`() async throws {
+        let harness = try await Harness()
+        harness.scratch.directory("selfmove")
+        harness.scratch.directory("selfmove/sub")
+
+        let into = try await harness.send("MOVE", "/selfmove/", headers: [
+            "Destination": "http://127.0.0.1:\(harness.port)/selfmove/sub/inner/",
+        ])
+        #expect(into.status == 403)
+        #expect(harness.scratch.exists("selfmove/sub"))
+
+        let root = try await harness.send("MOVE", "/", headers: [
+            "Destination": "http://127.0.0.1:\(harness.port)/elsewhere/",
+        ])
+        #expect(root.status == 403)
+        #expect(harness.scratch.exists("selfmove"))
     }
 
     @Test

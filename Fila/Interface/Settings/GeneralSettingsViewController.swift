@@ -91,7 +91,12 @@ final class GeneralSettingsViewController: UITableViewController {
         case .browsing:
             String(localized: "Turning off Remember Recents also deletes the history already recorded.")
         case .fileOperations:
-            String(localized: "Move deleted items to the trash so they can be put back.")
+            FileActions.backendHasTrash
+                ? String(localized: "Move deleted items to the trash so they can be put back.")
+                : String(
+                    localized: "There is no trash here: deleting removes items permanently, after you confirm.",
+                    comment: "Settings footer under Use Trash when the sandboxed backend has no trash to move items into.",
+                )
         case .scripts:
             String(localized: "Fila finds the program a script needs if it isn't in the usual place. Turn this off to run scripts exactly as written.")
         case .presets:
@@ -110,6 +115,7 @@ final class GeneralSettingsViewController: UITableViewController {
         let title: String
         let enabled: Bool
         let update: (Bool) -> Void
+        var available = true
         switch Section(rawValue: indexPath.section) {
         case .presets:
             let preset = presets[indexPath.row]
@@ -122,7 +128,10 @@ final class GeneralSettingsViewController: UITableViewController {
             cell.showsReorderControl = true
         case .fileOperations:
             title = String(localized: "Use Trash")
-            enabled = preferences.usesTrash
+            // Shown off and fixed where there is no trash, without touching
+            // the stored setting.
+            available = FileActions.backendHasTrash
+            enabled = preferences.usesTrash && available
             update = { [preferences] in preferences.usesTrash = $0 }
         case .scripts:
             title = String(localized: "Find Script Interpreters")
@@ -143,6 +152,7 @@ final class GeneralSettingsViewController: UITableViewController {
         cell.contentConfiguration = content
         let toggle = UISwitch().then {
             $0.isOn = enabled
+            $0.isEnabled = available
             $0.accessibilityLabel = title
         }
         toggle.addAction(UIAction { [weak toggle] _ in

@@ -38,8 +38,13 @@ final class OperationCenter: ObservableObject {
     /// Internal, not private: `OperationCenter+PutBack.swift` is a sibling file.
     unowned let session: FileSession
 
-    /// Completions that arrived before their row existed. See `startJob`.
-    private var earlyCompletions: [UInt64: FilaFailure] = [:]
+    /// Completions that arrived before their row existed, with their skipped
+    /// members. See `startJob`.
+    private var earlyCompletions: [UInt64: (outcome: FilaFailure, skipped: Int64)] = [:]
+    /// `startJob` calls waiting on the daemon's reply. A completion is held
+    /// only while one is: with none outstanding nothing will ever claim it,
+    /// and an identifier the restarted daemon hands out again would.
+    private var startsInFlight = 0
 
     /// How many finished rows the list keeps. It is a receipt, not a history.
     private static let finishedLimit = 20
@@ -73,6 +78,9 @@ final class OperationCenter: ObservableObject {
             guard operation.isRunning, case .job = operation.control else { return false }
             return true
         }.map(\.id)
+        // `filad` counts identifiers from 1 again on its next run; a held
+        // completion from this connection would finish that run's job.
+        earlyCompletions.removeAll()
         guard !lost.isEmpty else { return }
         // Not an error the user caused, and the only explanation for rows that
         // are about to end at 40%: the connection went and took the jobs with it.
@@ -159,6 +167,17 @@ final class OperationCenter: ObservableObject {
             directories.append(destination)
             directories.append((destination as NSString).deletingLastPathComponent)
         }
+        startsInFlight += 1
+        // Runs after the held completion below is claimed, or after a start
+        // that failed: either way the last outstanding start takes every
+        // completion still held with it — a reply lost to a dropped
+        // connection leaves one nothing will ever claim.
+        defer {
+            startsInFlight -= 1
+            if startsInFlight == 0 {
+                earlyCompletions.removeAll()
+            }
+        }
         let identifier = try await session.perform { try await $0.startJob(request) }
         // `filad` counts job identifiers from the start of each run, so one can
         // come back while a row that never heard `.completed` — the daemon was
@@ -193,7 +212,7 @@ final class OperationCenter: ObservableObject {
         // task from the one awaiting the reply, so the order is not ours to
         // choose; the completion is held until there is a row to put it on.
         if let early = earlyCompletions.removeValue(forKey: identifier) {
-            finish(operation.id, early)
+            finish(operation.id, early.outcome, skipped: early.skipped)
         }
         return identifier
     }
@@ -407,8 +426,8 @@ final class OperationCenter: ObservableObject {
         guard let index = index(ofJob: update.identifier) else {
             // The row is not here yet — see `startJob`. Progress lost in that
             // gap costs nothing; a completion costs the row running forever.
-            if case let .completed(failure) = update.event {
-                holdEarly(update.identifier, failure)
+            if case let .completed(failure, skipped) = update.event {
+                holdEarly(update.identifier, failure, skipped: skipped)
             }
             return
         }
@@ -416,8 +435,8 @@ final class OperationCenter: ObservableObject {
         switch update.event {
         case let .progress(progress):
             report(identity, progress: progress)
-        case let .completed(failure):
-            finish(identity, failure)
+        case let .completed(failure, skipped):
+            finish(identity, failure, skipped: skipped)
         }
     }
 
@@ -436,14 +455,17 @@ final class OperationCenter: ObservableObject {
         }
     }
 
-    private func holdEarly(_ identifier: UInt64, _ failure: FilaFailure) {
+    private func holdEarly(_ identifier: UInt64, _ failure: FilaFailure, skipped: Int64) {
+        // A late completion for a row the lost link already ended, with no
+        // start waiting to claim it, belongs to nothing.
+        guard startsInFlight > 0 else { return }
         // Bounded: every identifier here came from a `startJob` about to claim
         // it. The one that never does is a reply lost to a dropped connection,
         // and dropping the oldest is the whole recovery it needs.
         if earlyCompletions.count >= 16 {
             earlyCompletions.removeAll()
         }
-        earlyCompletions[identifier] = failure
+        earlyCompletions[identifier] = (failure, skipped)
     }
 
     private func report(_ identity: UUID, progress: JobProgress) {
@@ -453,10 +475,11 @@ final class OperationCenter: ObservableObject {
         // @Published updates task rows; progress does not change sidebar icons.
     }
 
-    private func finish(_ identity: UUID, _ failure: FilaFailure) {
+    private func finish(_ identity: UUID, _ failure: FilaFailure, skipped: Int64 = 0) {
         guard let index = operations.firstIndex(where: { $0.id == identity }),
               operations[index].isRunning else { return }
         operations[index].state = .finished(failure)
+        operations[index].skippedItems = skipped
         operations[index].control = nil
         if failure.code != .success {
             operations[index].undo = nil
@@ -574,6 +597,15 @@ final class OperationCenter: ObservableObject {
             return
         }
         guard operation.succeeded else { return }
+        // A partial extraction is not the success a toast says it is: the
+        // person would find out from the folder, one missing file at a time.
+        if operation.skippedItems > 0 {
+            FeedbackAlert.show(
+                String(localized: "Some Items Were Not Extracted"),
+                message: String(localized: "Items not extracted: \(operation.skippedItems). Settings › Log lists each one and why."),
+            )
+            return
+        }
         guard operation.undo != nil
             || operation.feedback == .successOnly
             || operation.kind.isInstant

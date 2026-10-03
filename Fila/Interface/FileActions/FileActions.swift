@@ -40,7 +40,22 @@ final class FileActions {
     }
 
     static var deleteTitle: String {
-        AppPreferences.shared.usesTrash ? String(localized: "Move to Trash") : String(localized: "Delete Permanently")
+        movesToTrash ? String(localized: "Move to Trash") : String(localized: "Delete Permanently")
+    }
+
+    /// Whether the regular delete renames into the trash: the setting, where
+    /// the live backend has a trash at all.
+    static var movesToTrash: Bool {
+        AppPreferences.shared.usesTrash && backendHasTrash
+    }
+
+    /// False on the sandboxed backend, which has no trash to offer: its trash
+    /// would sit at the volume root, where the container cannot create a
+    /// folder — the sidebar shows no Trash there for the same reason. Every
+    /// delete there is the confirmed permanent one, whatever the setting says.
+    static var backendHasTrash: Bool {
+        if case .local(reach: .container) = FileSession.shared.hello?.backend { return false }
+        return true
     }
 
     /// Whether `directory` is the trash: where `FileJob` renames deleted items
@@ -48,8 +63,8 @@ final class FileActions {
     /// `/private` prefix, so `/var/jb/.fila-trash` and its realpath agree even
     /// though the app cannot stat the directory itself (root-owned 0700).
     static func isTrash(_ directory: String) -> Bool {
-        guard let trash = FileSession.shared.trashDirectory else { return false }
-        return normalized(directory) == normalized(trash)
+        guard let trash = normalizedTrash() else { return false }
+        return normalized(directory) == trash
     }
 
     /// A trashed item: a direct child of the trash, wherever it was reached
@@ -57,6 +72,18 @@ final class FileActions {
     /// sheet. Its menu is Put Back or gone for good, and its delete is final.
     static func isInTrash(_ path: String) -> Bool {
         isTrash((path as NSString).deletingLastPathComponent)
+    }
+
+    /// The trash or any folder inside it: nowhere a copy, a move, an import or
+    /// a save may deliver to, since nothing enters the trash but a delete — an
+    /// item put there any other way has no origin to be put back to.
+    static func isTrashDestination(_ directory: String) -> Bool {
+        guard let base = normalizedTrash() else { return false }
+        let candidate = normalized(directory)
+        // By components, split on the byte 0x2F: a child whose name starts
+        // with a combining mark is one `Character` with its slash, and a
+        // string prefix would not see it as inside.
+        return candidate == base || FilaGuard.isAncestor(base, of: candidate)
     }
 
     /// Resolves the parent and keeps the last component as written: the trash
@@ -68,6 +95,21 @@ final class FileActions {
         let resolved = (parent as NSString).appendingPathComponent((path as NSString).lastPathComponent)
         return resolved.hasPrefix("/private/") ? String(resolved.dropFirst("/private".count)) : resolved
     }
+
+    /// The trash, normalized once per trash path: a drop asks on every move
+    /// of the finger, on the main thread, and resolving the trash's parent
+    /// each time is file-system work for an answer that does not change.
+    private static func normalizedTrash() -> String? {
+        guard let trash = FileSession.shared.trashDirectory else { return nil }
+        if let cached = normalizedTrashCache, cached.path == trash {
+            return cached.normalized
+        }
+        let value = normalized(trash)
+        normalizedTrashCache = (trash, value)
+        return value
+    }
+
+    private static var normalizedTrashCache: (path: String, normalized: String)?
 
     /// Editors provide their existing unsaved-changes boundary. Reading a path or
     /// opening metadata does not leave editing; file-content actions do.
@@ -321,27 +363,51 @@ final class FileActions {
         }
     }
 
+    /// One entry's name, never a path: what every prompt that names a new or
+    /// renamed item accepts. A slash or a `..` would put the item somewhere
+    /// other than the folder on screen, as root.
+    static func isItemName(_ name: String) -> Bool {
+        FilaGuard.isComponent(name)
+    }
+
+    /// What a prompt says about a name `isItemName` refused: what to type
+    /// instead, never "try again" — the same name can never succeed.
+    static func refuseName(_ name: String) {
+        FeedbackAlert.show(
+            String(localized: "Invalid Name"),
+            message: name.isEmpty
+                ? String(localized: "A name cannot be empty. Enter a name for the item.")
+                : String(localized: "“\(name)” is not a valid name. Enter a name without slashes, and do not use “.” or “..”."),
+        )
+    }
+
     func promptRename(_ path: String) {
         guard let presenter = activePresenter else { return }
-        let source = URL(fileURLWithPath: path)
+        // NSString, not URL: a file URL decomposes its components, so the
+        // field would offer a different form of the name than the disk holds,
+        // and every new name would be stored decomposed whatever was typed.
+        let current = (path as NSString).lastPathComponent
         let alert = AlertInputViewController(
             title: String.LocalizationValue("Rename"),
             message: String.LocalizationValue("Enter a new name. The item stays in the same folder."),
             placeholder: String.LocalizationValue("New name"),
-            text: source.lastPathComponent,
+            text: current,
             doneButtonText: String.LocalizationValue("Rename"),
         ) { name in
-            guard name != source.lastPathComponent else { return }
-            guard !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.contains("\0") else {
-                self.report(FilaFailure(code: .invalidRequest, systemError: EINVAL, path: name))
+            // By scalars: `String` equality is canonical equivalence, and a
+            // rename from one Unicode form of a name to the other is a real
+            // change the file system keeps.
+            guard !name.unicodeScalars.elementsEqual(current.unicodeScalars) else { return }
+            guard Self.isItemName(name) else {
+                Self.refuseName(name)
                 return
             }
             self.rename(
                 path,
-                to: source.deletingLastPathComponent().appendingPathComponent(name).path,
+                to: ((path as NSString).deletingLastPathComponent as NSString).appendingPathComponent(name),
                 replacingExisting: false,
             )
-        }
+        }.typingLiterally()
         presenter.present(alert, animated: true)
     }
 
@@ -465,12 +531,25 @@ final class FileActions {
     var activePresenter: UIViewController? {
         guard let presenter, presenter.viewIfLoaded?.window != nil,
               presenter.navigationController?.topViewController === presenter else { return nil }
+        var front: UIViewController = presenter
         var ancestor: UIViewController? = presenter
         while let controller = ancestor {
-            guard controller.presentedViewController == nil, !controller.isBeingDismissed else { return nil }
+            guard !controller.isBeingDismissed else { return nil }
+            if let presented = controller.presentedViewController {
+                // The page's own active search field is a presentation too,
+                // and a menu on one of its results is still the page in
+                // front: the card goes over the field. Anything else
+                // covering the page means it is not in front.
+                guard front === presenter,
+                      let search = presented as? UISearchController,
+                      search === presenter.navigationItem.searchController,
+                      search.presentedViewController == nil,
+                      !search.isBeingDismissed else { return nil }
+                front = search
+            }
             ancestor = controller.parent
         }
-        return presenter
+        return front
     }
 
     func confirmDestruction(title: String, message: String, confirm: String, handler: @escaping () -> Void) {

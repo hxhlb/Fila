@@ -76,6 +76,12 @@
 
         /// Whether a session is running for End Session to end.
         private var canEndSession = false
+        /// A package install is running, and taking this screen out of its
+        /// tab would hang `dpkg` up part-way. Back is hidden for it; the
+        /// shell's navigation reads this on every pop or replacement that
+        /// would take the screen away — a breadcrumb, a sidebar row, Back
+        /// from a screen above — and refuses it.
+        public private(set) var refusesLeaving = false
         private let program: TerminalProgram
         private let redirectsScriptInterpreter: Bool
         private let link: any TerminalAccess
@@ -265,7 +271,14 @@
             // values instead — the pump releases its descriptor, and the daemon is
             // told to hang the process up rather than being left to notice when the
             // whole app goes.
-            pump.pty?.close()
+            //
+            // Out of the box first, as `teardown()` does: the box holds the pty,
+            // the pty's output handler holds the session, and the session's
+            // write closure holds the box. Left in place, that ring outlives
+            // the screen.
+            let pty = pump.pty
+            pump.pty = nil
+            pty?.close()
             guard let identifier = terminalIdentifier else { return }
             Self.close(identifier, link: link, onProcessExit: onProcessExit)
         }
@@ -390,11 +403,13 @@
         /// A package install must not be hung up by a swipe: `dpkg` left between
         /// unpack and configure is exactly the damage the card warned about, and
         /// an edge-swipe is not a decision. The back button and the pop gesture
-        /// go away while the child is alive; the End action stays, because it is
-        /// one. A closed tab or a killed app still hangs it up — those the screen
+        /// go away while the child is alive, and `refusesLeaving` tells the shell
+        /// to refuse its own routes; the End action stays, because it is one. A
+        /// closed tab or a killed app still hangs it up — those the screen
         /// cannot intercept.
         private func guardAgainstDismissal(_ on: Bool) {
             guard case .installPackage = program else { return }
+            refusesLeaving = on
             navigationItem.hidesBackButton = on
             navigationController?.interactivePopGestureRecognizer?.isEnabled = !on
         }

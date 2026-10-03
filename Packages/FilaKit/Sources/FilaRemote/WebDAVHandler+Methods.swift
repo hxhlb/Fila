@@ -86,7 +86,22 @@ extension WebDAVHandler {
 
     // MARK: - PUT
 
-    func put(_ request: HTTPRequest, path: String, on http: HTTPConnection) async throws -> Int {
+    func put(_ request: HTTPRequest, path requested: String, on http: HTTPConnection) async throws -> Int {
+        // A PUT is an edit of the file at that URL, so a link there is written
+        // through: the file it names gets the bytes and the link stays a
+        // link, as the kernel's own `open` would leave it. `replaceItem`
+        // refuses a link — publishing over one would put a file in its place
+        // and leave the file it names unedited — so the write goes to the
+        // resolved place, and only while that place is inside the share.
+        var path = requested
+        let named = try? await service.details(of: requested)
+        if named?.node.kind == .symbolicLink {
+            guard let resolved = await service.resolvedPath(of: requested), await isServed(resolved) else {
+                try await respond(http, 403, close: true)
+                return 403
+            }
+            path = resolved
+        }
         let parent = RemotePath.parent(of: path)
         // A PUT into a directory that does not exist is a 409 and never an
         // implicit `mkdir -p`: the client asked for one thing and inventing the
@@ -106,7 +121,9 @@ extension WebDAVHandler {
             exclusive = false
         }
         let existing = try? await service.details(of: path)
-        if exclusive && existing != nil {
+        // A link occupies its name even when what it names is missing, as
+        // `O_EXCL` holds it does.
+        if exclusive && (existing != nil || named != nil) {
             try await respond(http, 412, close: true)
             return 412
         }
@@ -124,7 +141,7 @@ extension WebDAVHandler {
 
         // The same shape as every other write in this app: a temporary beside
         // the target, then `replaceItem`, which carries the original's mode,
-        // owner, times, xattrs and flags across and `rename(2)`s. A truncating
+        // owner, creation time, xattrs and flags across and `rename(2)`s. A truncating
         // write here would let a dropped Wi-Fi connection halve a system plist.
         let temporary = RemotePath.join(parent, ".fila-tmp-\(UUID().uuidString)")
         // Keep incomplete uploads private; publication applies the new-file
@@ -233,6 +250,12 @@ extension WebDAVHandler {
             try await respond(http, 400)
             return 400
         }
+        // The share itself is not something a client may move away, as it
+        // may not delete it.
+        guard path != configuration.root else {
+            try await respond(http, 403)
+            return 403
+        }
         guard destination != configuration.root, await isServed(destination) else {
             try await respond(http, 403)
             return 403
@@ -251,6 +274,11 @@ extension WebDAVHandler {
         } catch let failure as FilaFailure where failure.systemError == EEXIST {
             try await respond(http, 412)
             return 412
+        } catch let failure as FilaFailure where failure.systemError == EINVAL {
+            // `rename(2)`'s answer to a folder moved into itself: a move the
+            // resource does not allow, which RFC 4918 calls 403.
+            try await respond(http, 403)
+            return 403
         } catch let failure as FilaFailure where failure.systemError == EXDEV {
             // Different volumes. `rename(2)` cannot, `copyfile(3)` can, and the
             // daemon's move job is the thing that knows which.
@@ -332,21 +360,48 @@ extension WebDAVHandler {
 
     /// Undoes a `transfer` that failed part-way.
     ///
-    /// `origin` is non-nil only for a move, whose source is already gone. The
-    /// staged tree is put back there first, and the staging directory is
+    /// `origin` is non-nil only for a move, whose source may already be gone.
+    /// The staged tree is put back there first, and the staging directory is
     /// removed only if that succeeded — a recursive delete over the user's only
     /// copy is the one thing this must never do, so when it cannot be returned
     /// it is left where it is for them to find.
+    ///
+    /// Two failures leave nothing to return. A move that failed while copying
+    /// published nothing, so there is no staged tree and the source is whole.
+    /// One stopped after the copy may also have left the source in place —
+    /// whole if it stopped before the removal, partly removed if the removal
+    /// failed — and nothing here can tell those apart, so the complete copy
+    /// stays, and the line says where it is and that the original may be
+    /// incomplete rather than claiming it was moved.
     private func unstage(_ staged: String, back origin: String?, removing staging: String) async {
-        if let origin {
+        if let origin, await !isAbsent(staged) {
             do {
                 try await service.rename(staged, to: origin, exclusive: true)
             } catch {
-                log("Unable to finish the move. Your files are in \(staged).")
+                if await exists(origin) {
+                    log("Unable to finish the move. A complete copy is in \(staged), and \(origin) may be incomplete.")
+                } else {
+                    log("Unable to finish the move. Your files are in \(staged).")
+                }
                 return
             }
         }
         try? await service.run(JobRequest(kind: .delete, sources: [staging]))
+    }
+
+    /// True only when the backend says there is nothing at `path`. Any other
+    /// failure — a dropped link among them — is not evidence that a staged
+    /// tree is gone, and deleting staging on the strength of it could delete
+    /// the user's only copy.
+    private func isAbsent(_ path: String) async -> Bool {
+        do {
+            _ = try await service.details(of: path)
+            return false
+        } catch let failure as FilaFailure {
+            return failure.systemError == ENOENT
+        } catch {
+            return false
+        }
     }
 
     private func destination(of request: HTTPRequest) -> String? {

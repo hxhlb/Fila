@@ -60,19 +60,11 @@ extension RootSplitViewController {
             return
         case let .locate(path):
             let navigation = content.navigation
-            Task {
-                let session = FileSession.shared
-                do {
-                    let details = try await session.perform(retryOnDisconnect: true) { try await $0.details(of: path) }
-                    guard self.content.navigation === navigation, self.viewIfLoaded?.window != nil else { return }
-                    if details.node.isNavigable {
-                        self.open(path)
-                    } else {
-                        self.open(self.parent(of: path), select: (path as NSString).lastPathComponent)
-                    }
-                } catch let failure as FilaFailure {
-                    self.report(failure)
-                } catch {}
+            locate(path) { folder, name in
+                // A tab the person has since moved is theirs now; the link
+                // does not pull it back.
+                guard self.content.navigation === navigation else { return }
+                self.open(folder, select: name)
             }
         case let .directory(path):
             open(path)
@@ -87,7 +79,9 @@ extension RootSplitViewController {
             // preference without bound — nor to push a person's own tabs out of
             // the switcher. `BrowserTabStore.limit` is the number, and
             // `BrowserTabStore.openFromLink` is where it is enforced.
-            openFromLink(path)
+            locate(path) { folder, name in
+                self.openFromLink(folder, select: name)
+            }
         case let .reveal(path):
             // The folder the item is in, and the row itself once the page
             // carrying it arrives — the listing streams, so the row does not
@@ -128,6 +122,26 @@ extension RootSplitViewController {
             : String(localized: "Fila cannot see other apps on this device.")
     }
 
+    /// Where a linked path is shown: a directory is the folder itself, and
+    /// anything else is its parent with the item's name to select. A link only
+    /// spells a path, so this asks what is there first. A path that cannot be
+    /// read is reported, rather than opened as a folder that fails to list.
+    private func locate(_ path: String, then show: @escaping @MainActor (_ folder: String, _ name: String?) -> Void) {
+        Task {
+            do {
+                let details = try await FileSession.shared.perform(retryOnDisconnect: true) { try await $0.details(of: path) }
+                guard self.viewIfLoaded?.window != nil else { return }
+                if details.node.isNavigable {
+                    show(path, nil)
+                } else {
+                    show(self.parent(of: path), (path as NSString).lastPathComponent)
+                }
+            } catch let failure as FilaFailure {
+                TopPresenter.whenReady(from: self) { $0.report(failure) }
+            } catch {}
+        }
+    }
+
     /// A path's directory. `deletingLastPathComponent` on `/etc` gives `/`,
     /// which is right, and on `/` gives `/`, which is also right — revealing
     /// the volume root shows the volume root.
@@ -141,14 +155,18 @@ extension RootSplitViewController {
             let session = FileSession.shared
             do {
                 let details = try await session.perform(retryOnDisconnect: true) { try await $0.details(of: path) }
-                self.presentAsSheet(
-                    UINavigationController(rootViewController: PropertiesViewController(
-                        details: details,
-                        link: session.link,
-                    )),
-                )
+                // Over whatever is up — another sheet, a card — rather than
+                // from the root, which UIKit refuses while it presents one.
+                TopPresenter.whenReady(from: self) { top in
+                    top.presentAsSheet(
+                        UINavigationController(rootViewController: PropertiesViewController(
+                            details: details,
+                            link: session.link,
+                        )),
+                    )
+                }
             } catch let failure as FilaFailure {
-                self.report(failure)
+                TopPresenter.whenReady(from: self) { $0.report(failure) }
             } catch {}
         }
     }

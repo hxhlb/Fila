@@ -76,19 +76,32 @@ final class FileSharingServer {
     }
 
     private var resolvingRoot = false
+    /// Which start the root being resolved belongs to. That wait has no end
+    /// while the daemon is not up, and nothing can cancel it, so a stop — the
+    /// switch turned off, or the app leaving the screen — moves this on and
+    /// the start that finally hears back finds it is no longer wanted.
+    private var startGeneration: UInt64 = 0
 
     func start() {
         let preferences = AppPreferences.shared
         startFailure = nil
         resolvingRoot = true
+        startGeneration &+= 1
+        let generation = startGeneration
         refresh()
         Task {
             // The server compares canonical paths, and only the daemon can
-            // resolve a folder `mobile` has no search permission into. A
-            // folder that has gone is a start failure, not a share of nothing.
-            let root = try? await FileSession.shared.perform(retryOnDisconnect: true) {
-                try await $0.details(of: preferences.serverRoot)
+            // resolve a folder `mobile` has no search permission into — every
+            // link in it followed, the last one too: a folder chosen as
+            // `/var/jb` is a link into `/private/preboot`, and it is the folder
+            // it points at that is shared. A folder that has gone is a start
+            // failure, not a share of nothing.
+            let service = WebDAVFileService()
+            var root: FileDetails?
+            if let resolved = await service.resolvedPath(of: preferences.serverRoot) {
+                root = try? await service.details(of: resolved)
             }
+            guard generation == startGeneration else { return }
             resolvingRoot = false
             guard let root, root.node.kind == .directory else {
                 FilaLog.warning("sharing not started: \(preferences.serverRoot) is not a directory")
@@ -134,6 +147,10 @@ final class FileSharingServer {
     }
 
     func stop() {
+        // Also a start still waiting for its root: it must not bring the
+        // listener up once the daemon answers.
+        startGeneration &+= 1
+        resolvingRoot = false
         server.stop()
         endBackgroundTask()
         refresh()
@@ -157,7 +174,7 @@ final class FileSharingServer {
     /// the moment the app does, and the user is not left believing their laptop
     /// still has a mount.
     @objc private func applicationWillResign() {
-        guard isRunning else { return }
+        guard isRunning || isStarting else { return }
         guard AppPreferences.shared.keepsServerRunningInBackground else {
             stop()
             return

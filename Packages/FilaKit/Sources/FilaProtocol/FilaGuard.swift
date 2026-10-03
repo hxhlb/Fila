@@ -77,19 +77,38 @@ public enum FilaGuard {
     /// True when `ancestor` contains `path`. `/private` contains
     /// `/private/var`; `/priv` does not.
     public static func isAncestor(_ ancestor: String, of path: String) -> Bool {
-        let ancestor = normalize(ancestor)
-        let path = normalize(path)
-        if ancestor == "/" {
-            return path != "/"
-        }
-        return path.hasPrefix(ancestor + "/")
+        let ancestor = components(of: ancestor)
+        let path = components(of: path)
+        return path.count > ancestor.count && path.starts(with: ancestor)
     }
 
     /// Lexical cleanup: absolute, no repeated or trailing slashes, `.` dropped,
     /// `..` resolved against what came before. Never touches the filesystem.
     public static func normalize(_ path: String) -> String {
+        "/" + components(of: path).joined(separator: "/")
+    }
+
+    /// Whether `name` is exactly one entry's name, never a path: not empty,
+    /// not `.` or `..`, and no `/` or NUL byte in it. Every prompt that names
+    /// a new or renamed item asks this before joining the name to a folder.
+    /// Compared by bytes for the reason `components(of:)` splits by bytes:
+    /// `"../\u{301}x".contains("/")` is false, because "/" plus U+0301 is one
+    /// `Character`, and the kernel would still read it as `..` and `\u{301}x`.
+    public static func isComponent(_ name: String) -> Bool {
+        let bytes = name.utf8
+        return !bytes.isEmpty && !bytes.contains(UInt8(ascii: "/")) && !bytes.contains(0)
+            && !bytes.elementsEqual(".".utf8) && !bytes.elementsEqual("..".utf8)
+    }
+
+    /// The components `normalize` keeps, split where the kernel splits: on the
+    /// byte 0x2F. Splitting `Character`s would glue a name that starts with a
+    /// combining mark, a ZWJ or a variation selector to the separator before
+    /// it — "/" plus U+0301 is one grapheme and not equal to "/" — and
+    /// `/a/tree/\u{301}inner` would stop being inside `/a/tree`.
+    private static func components(of path: String) -> [String] {
         var components: [String] = []
-        for component in path.split(separator: "/", omittingEmptySubsequences: true) {
+        for bytes in path.utf8.split(separator: UInt8(ascii: "/"), omittingEmptySubsequences: true) {
+            let component = String(decoding: bytes, as: UTF8.self)
             switch component {
             case ".":
                 continue
@@ -98,9 +117,9 @@ public enum FilaGuard {
                     components.removeLast()
                 }
             default:
-                components.append(String(component))
+                components.append(component)
             }
         }
-        return "/" + components.joined(separator: "/")
+        return components
     }
 }

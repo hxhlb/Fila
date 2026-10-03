@@ -27,11 +27,15 @@ import Foundation
 /// it. That is defence in depth, not an excuse for the first layer.
 enum FilaLink: Equatable {
     case activate
-    /// Filza-compatible path form: show a directory or select a file.
+    /// Show a directory, or a file selected in its folder:
+    /// `fila:///var/mobile/Documents`, `fila://open?path=…`, and Filza's
+    /// `fila://view/var/mobile/Documents`. A link cannot know which of the two
+    /// it names, so the router asks before it navigates.
     case locate(String)
-    /// `fila:///var/mobile/Documents` — and `fila://open?path=…`.
+    /// A path the caller already knows is a directory. No URL produces it:
+    /// it is *Show Original* on a link to a folder.
     case directory(String)
-    /// `fila://open?path=…&tab=new`.
+    /// `fila://open?path=…&tab=new`, with the same file rule as `locate`.
     case newTab(String)
     /// `fila://reveal?path=…` — the parent directory of the item.
     case reveal(String)
@@ -96,14 +100,14 @@ extension FilaLink {
                 return
             }
             guard let path = Self.canonical(components.path) else { return nil }
-            self = wantsNewTab ? .newTab(path) : .directory(path)
+            self = wantsNewTab ? .newTab(path) : .locate(path)
             return
         }
 
         switch verb {
         case "open":
             guard let path = Self.path(values) else { return nil }
-            self = wantsNewTab ? .newTab(path) : .directory(path)
+            self = wantsNewTab ? .newTab(path) : .locate(path)
         case "reveal":
             guard let path = Self.path(values) else { return nil }
             self = .reveal(path)

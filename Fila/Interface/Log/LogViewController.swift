@@ -50,6 +50,13 @@ final class LogViewController: UIViewController {
 
     private static let pollInterval: TimeInterval = 1
 
+    /// How long a poll waits for the daemon. Long enough for a daemon that is
+    /// up to answer, short enough that a tap on the row never reads as dead:
+    /// a daemon still spawning is caught by a later poll instead.
+    private static let daemonPatience: UInt64 = 300_000_000
+
+    private typealias DaemonAnswer = (records: [FilaLog.Record], dropped: UInt64)
+
     private let session = FileSession.shared
     private let search = UISearchController(searchResultsController: nil)
     private let droppedNotice = UIListContentView(configuration: .groupedFooter())
@@ -77,6 +84,14 @@ final class LogViewController: UIViewController {
     private var isFollowing = true
     private var timer: Timer?
     private var isFetching = false
+    /// The daemon fetch, which outlives the poll that started it while
+    /// `filad` is not answering. See `daemonAnswer(within:)`.
+    private var isDaemonFetchInFlight = false
+    /// What that fetch brought back and no poll has collected yet;
+    /// `.some(nil)` is a fetch that failed.
+    private var daemonArrival: DaemonAnswer??
+    private var daemonWaiter: (token: UInt64, continuation: CheckedContinuation<Void, Never>)?
+    private var daemonWaitCount: UInt64 = 0
     /// A compact row's estimated height is also the follow-mode tolerance;
     /// scrolling does not need to construct fonts on every event.
     private var rowHeight = LogRowCell.height()
@@ -136,25 +151,7 @@ final class LogViewController: UIViewController {
     /// and the poll picks up whatever it had not said by then.
     func loadEverything() async {
         loadViewIfNeeded()
-        let cursor = daemonCursor
-        let level = LogPreferences.level
-        let session = session
-        typealias Answer = (records: [FilaLog.Record], dropped: UInt64)
-        let answer: Answer? = await withTaskGroup(of: Answer?.self) { group in
-            group.addTask {
-                try? await session.perform { try await $0.fetchLog(since: cursor, level: level) }
-            }
-            group.addTask {
-                // Long enough for a daemon that is up to answer, short
-                // enough that a tap on the row never reads as dead: a daemon
-                // still spawning is caught by the first poll instead.
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                return nil
-            }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
-        }
+        let answer = await daemonAnswer(within: Self.daemonPatience)
         let (appRecords, _) = FilaLog.snapshot(since: appCursor)
         if let last = appRecords.last {
             appCursor = last.sequence
@@ -235,9 +232,7 @@ final class LogViewController: UIViewController {
         guard !isFetching else { return }
         isFetching = true
         defer { isFetching = false }
-        let answer = try? await session.perform {
-            try await $0.fetchLog(since: self.daemonCursor, level: LogPreferences.level)
-        }
+        let answer = await daemonAnswer(within: Self.daemonPatience)
         guard !Task.isCancelled, viewIfLoaded?.window != nil,
               navigationController?.topViewController === self else { return }
         let (appRecords, _) = FilaLog.snapshot(since: appCursor)
@@ -252,6 +247,56 @@ final class LogViewController: UIViewController {
             updateDroppedNotice()
         }
         add(appRecords + (answer?.records ?? []))
+    }
+
+    /// The daemon's half of a poll, given at most `nanoseconds` to answer.
+    ///
+    /// `FileSession.perform` waits for `filad` as long as it takes and cannot
+    /// be cancelled while it does — right for a screen that says
+    /// *Connecting…*, wrong for this one, which is where someone looks to find
+    /// out why the daemon is not up. So the fetch is raced rather than awaited:
+    /// nil when it has not answered in time, and the app's own lines go on
+    /// without it. The fetch itself is not abandoned. It stays the one in
+    /// flight, and a later poll collects what it brings back instead of
+    /// stacking a second request behind it.
+    private func daemonAnswer(within nanoseconds: UInt64) async -> DaemonAnswer? {
+        if daemonArrival == nil, !isDaemonFetchInFlight {
+            isDaemonFetchInFlight = true
+            let session = session
+            let cursor = daemonCursor
+            let level = LogPreferences.level
+            Task { [weak self] in
+                let answer = try? await session.perform { try await $0.fetchLog(since: cursor, level: level) }
+                guard let self else { return }
+                isDaemonFetchInFlight = false
+                daemonArrival = .some(answer)
+                wakeDaemonWaiter()
+            }
+        }
+        if daemonArrival == nil {
+            daemonWaitCount &+= 1
+            let token = daemonWaitCount
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                // One waiter at a time; an earlier one is let go empty-handed
+                // rather than left suspended for good.
+                wakeDaemonWaiter()
+                daemonWaiter = (token, continuation)
+                Task { [weak self] in
+                    try? await Task.sleep(nanoseconds: nanoseconds)
+                    self?.wakeDaemonWaiter(token)
+                }
+            }
+        }
+        defer { daemonArrival = nil }
+        return daemonArrival ?? nil
+    }
+
+    /// Resumes the poll waiting on the daemon: any poll when the answer has
+    /// arrived, only the poll that set it when a timeout fires.
+    private func wakeDaemonWaiter(_ token: UInt64? = nil) {
+        guard let waiter = daemonWaiter, token == nil || token == waiter.token else { return }
+        daemonWaiter = nil
+        waiter.continuation.resume()
     }
 
     private func add(_ incoming: [FilaLog.Record]) {

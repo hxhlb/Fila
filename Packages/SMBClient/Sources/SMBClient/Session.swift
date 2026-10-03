@@ -382,13 +382,21 @@ public class Session {
     // directory before returning; this is the page underneath it, so a
     // consumer can stop, budget or cancel between pages and never hold more
     // than one server response. `hasMore` is false when the server answered
-    // STATUS_NO_MORE_FILES, which arrives with no entries.
+    // STATUS_NO_MORE_FILES, which arrives with no entries, and when a page
+    // carried no entries at all: asking again would ask the same question
+    // for ever. A first page answered STATUS_NO_SUCH_FILE is an empty
+    // directory — an empty NTFS volume root has not even `.` and `..` to
+    // match — not a missing one. A reply whose offsets point outside itself
+    // is refused as `ConnectionError.malformedResponse` before it is parsed.
     public func queryDirectoryPage(
         fileId: Data,
         pattern: String = "*",
         restart: Bool,
     ) async throws -> (files: [FileDirectoryInformation], hasMore: Bool) {
-        let outputBufferLength = min(1_048_576, maxTransactSize)
+        // Never below the 64 KiB MS-SMB2 requires of MaxTransactSize: a
+        // server that negotiated 0 would otherwise make `creditSize`
+        // underflow and trap.
+        let outputBufferLength = min(1_048_576, max(maxTransactSize, 65_536))
         let creditSize = creditSize(size: outputBufferLength)
 
         let request = QueryDirectory.Request(
@@ -403,9 +411,86 @@ public class Session {
             outputBufferLength: outputBufferLength,
         )
 
-        let response = try await send(request)
-        let hasMore = NTStatus(response.header.status) != .noMoreFiles
-        return (response.files(), hasMore)
+        let data: Data
+        do {
+            data = try await connection.send(sign(request.encoded()))
+        } catch let error as ErrorResponse where restart && NTStatus(error.header.status) == .noSuchFile {
+            return ([], false)
+        }
+        guard QueryDirectory.Response.isWellFormed(data) else { throw ConnectionError.malformedResponse }
+        let response = QueryDirectory.Response(data: data)
+        let files = response.files()
+        let hasMore = NTStatus(response.header.status) != .noMoreFiles && !files.isEmpty
+        return (files, hasMore)
+    }
+
+    // Fila: `fileStat(path:)` of the node itself. A reparse point — a
+    // junction, a symlink, a mount point — is opened as itself rather than
+    // followed, so the attributes that come back say it is one and a caller
+    // deciding whether to walk or remove a tree is never sent through it.
+    public func nodeStat(path: String) async throws -> Create.Response {
+        let createRequest = Create.Request(
+            messageId: messageId.next(),
+            treeId: treeId,
+            sessionId: sessionId,
+            desiredAccess: [.readData, .readAttributes, .synchronize],
+            fileAttributes: [],
+            shareAccess: [.read, .write, .delete],
+            createDisposition: .open,
+            createOptions: [.openReparsePoint],
+            name: path,
+        )
+        let closeRequest = Close.Request(
+            headerFlags: [.relatedOperations],
+            messageId: messageId.next(),
+            treeId: treeId,
+            sessionId: sessionId,
+            fileId: temporaryUUID,
+        )
+
+        let (response, _) = try await send(createRequest, closeRequest)
+        return response
+    }
+
+    // Fila: the reparse tag of the node at `path`, opened as itself, from
+    // FILE_ATTRIBUTE_TAG_INFORMATION (FileAttributes, then ReparseTag).
+    // The reparse-point attribute alone does not say whether a node names
+    // another: a deduplicated file or a cloud placeholder carries it too.
+    // A reply too short to hold the tag is refused as malformed.
+    public func reparseTag(path: String) async throws -> UInt32 {
+        let createRequest = Create.Request(
+            messageId: messageId.next(),
+            treeId: treeId,
+            sessionId: sessionId,
+            desiredAccess: [.readAttributes],
+            fileAttributes: [],
+            shareAccess: [.read, .write, .delete],
+            createDisposition: .open,
+            createOptions: [.openReparsePoint],
+            name: path,
+        )
+        let queryInfoRequest = QueryInfo.Request(
+            headerFlags: [.relatedOperations],
+            messageId: messageId.next(),
+            treeId: treeId,
+            sessionId: sessionId,
+            infoType: .file,
+            fileInfoClass: .fileAttributeTagInformation,
+            fileId: temporaryUUID,
+        )
+        let closeRequest = Close.Request(
+            headerFlags: [.relatedOperations],
+            messageId: messageId.next(),
+            treeId: treeId,
+            sessionId: sessionId,
+            fileId: temporaryUUID,
+        )
+
+        let (_, response, _) = try await send(createRequest, queryInfoRequest, closeRequest)
+        guard response.buffer.count >= 8 else { throw ConnectionError.malformedResponse }
+        let reader = ByteReader(response.buffer)
+        let _: UInt32 = reader.read()
+        return reader.read()
     }
 
     public func fileStat(path: String) async throws -> Create.Response {
@@ -618,7 +703,10 @@ public class Session {
     // an occupied `to` fails with STATUS_OBJECT_NAME_COLLISION and nothing
     // moves; `true` replaces a file at `to` in the server's one rename.
     // `setInfo(path:_:)` cannot do this: a rename needs DELETE access on the
-    // handle and that method opens without it.
+    // handle and that method opens without it. Unlike `move`, a reparse
+    // point is opened as itself, so the link is renamed and not its target,
+    // and `to` goes on the wire as given: composing it to NFC renames a
+    // decomposed name to different bytes on a server that compares bytes.
     public func rename(from: String, to: String, replaceIfExists: Bool) async throws {
         let createRequest = Create.Request(
             messageId: messageId.next(),
@@ -628,7 +716,7 @@ public class Session {
             fileAttributes: [.normal],
             shareAccess: [],
             createDisposition: .open,
-            createOptions: [],
+            createOptions: [.openReparsePoint],
             name: from,
         )
         let setInfoRequest = SetInfo.Request(
@@ -638,7 +726,7 @@ public class Session {
             sessionId: sessionId,
             fileId: temporaryUUID,
             infoType: .file,
-            fileInformation: FileRenameInformation(replaceIfExists: replaceIfExists, fileName: to.precomposedStringWithCanonicalMapping),
+            fileInformation: FileRenameInformation(replaceIfExists: replaceIfExists, fileName: to),
         )
         let closeRequest = Close.Request(
             headerFlags: [.relatedOperations],
@@ -846,6 +934,9 @@ public class Session {
             var offset = 0
 
             repeat {
+                // Fila: a reply the previous one placed outside the message,
+                // or too short for its header, is refused rather than read.
+                guard responseData.count - offset >= 64 else { throw ConnectionError.malformedResponse }
                 responses.append(Data(responseData[offset...]))
 
                 header = reader.read()
@@ -853,6 +944,10 @@ public class Session {
                 offset += Int(header.nextCommand)
                 reader.seek(to: offset)
             } while header.nextCommand != 0
+
+            // Fila: one reply per request, or `respond` below reads past the
+            // end of `responses` for a server that answered fewer.
+            guard responses.count >= count else { throw ConnectionError.malformedResponse }
 
             var iterator = 0
             func respond<R: Message.Request>(requestType _: R.Type) -> R.Response {

@@ -210,8 +210,13 @@ public final class LocalFileService: LocalFileAccess, @unchecked Sendable {
         }
     }
 
-    public func setAttributes(_ change: AttributeChange, at path: String) async throws {
-        try await run("setAttributes \(path)") { try self.operations.setAttributes(change, at: path) }
+    @discardableResult
+    public func setAttributes(_ change: AttributeChange, at path: String) async throws -> AttributeOutcome {
+        let outcome = try await run("setAttributes \(path)") { try self.operations.setAttributes(change, at: path) }
+        if outcome.unchangedSharedFiles > 0 {
+            FilaLog.warning("\(outcome.unchangedSharedFiles) hard-linked file(s) beneath \(path) left unchanged")
+        }
+        return outcome
     }
 
     public func replaceItem(at target: String, withTemporary temporary: String) async throws {
@@ -262,7 +267,7 @@ public final class LocalFileService: LocalFileAccess, @unchecked Sendable {
                     FilaLog.level(for: outcome.code),
                     "job \(identifier) \(outcome.path ?? "-") \(FilaLog.describe(outcome))",
                 )
-                self.streams.yield(JobUpdate(identifier: identifier, event: .completed(outcome)))
+                self.streams.yield(JobUpdate(identifier: identifier, event: .completed(outcome, skipped: work.skippedItems)))
                 // Dropped after the completion is out, so a cancel that arrives
                 // in between still finds the job rather than silently doing
                 // nothing.
@@ -336,6 +341,8 @@ private protocol RunningJob: Sendable {
         note: @escaping (String) -> Void,
     ) -> FilaFailure
     func cancel()
+    /// Read once `run` has returned.
+    var skippedItems: Int64 { get }
 }
 
 extension FileJob: RunningJob {}

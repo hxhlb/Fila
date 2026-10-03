@@ -103,7 +103,7 @@ enum IPAInstaller {
     /// What the Install… card says about a package, read from the package
     /// itself: the bundle identifier installd will register it under (and the
     /// name of the placeholder to remove if it refuses), and a name to show.
-    struct Manifest {
+    struct Manifest: Equatable {
         var bundleID: String
         var displayName: String
     }
@@ -115,6 +115,20 @@ enum IPAInstaller {
     /// `Payload/`: a second is not a package installd takes, and it must not be
     /// the one the card names while installd registers the other. No such
     /// member, or a plist without a bundle identifier, is the same refusal.
+    ///
+    /// A member is judged by the file an extractor would write it to, not by
+    /// its spelling: `Payload/A.app/./Info.plist` and `Payload//A.app/Info.plist`
+    /// land on the same file as `Payload/A.app/Info.plist`, so each counts as
+    /// another Info.plist, and so does one that differs only in case, which a
+    /// case-insensitive volume folds together. A member that climbs with `..`
+    /// or starts at `/` is not something an app package carries.
+    ///
+    /// The package is read twice, and both readings must agree. A zip lists
+    /// its members twice too — a local header before each one, and the
+    /// central directory at the end — and installd streams the local headers
+    /// while a seekable reader trusts the directory. A member with a local
+    /// header and no directory record is invisible to one and installed by
+    /// the other, so a package that reads differently each way is refused.
     static func manifest(ofIPAAt url: URL) async throws -> Manifest {
         try await Task.detached {
             let descriptor = open(url.path, O_RDONLY)
@@ -124,29 +138,54 @@ enum IPAInstaller {
                 localized: "“\(url.lastPathComponent)” is not an app package. Choose an .ipa that contains one app.",
                 bundle: ApplicationBackend.bundle,
             ))
-            let reader = try ArchiveReader(descriptor: descriptor)
-            var found: Manifest?
-            while let entry = try reader.next() {
-                let parts = entry.declaredPath.split(separator: "/")
-                guard parts.count == 3, parts[0] == "Payload", parts[1].hasSuffix(".app"),
-                      parts[2] == "Info.plist" else { continue }
-                let data = try reader.data(maximumByteCount: 4 * 1024 * 1024)
-                guard found == nil,
-                      let plist = try PropertyListSerialization
-                      .propertyList(from: data, options: [], format: nil) as? [String: Any],
-                      let bundleID = plist["CFBundleIdentifier"] as? String, !bundleID.isEmpty
-                else { throw notAnApp }
-                let bundleName = String(parts[1])
-                let name = (plist["CFBundleDisplayName"] as? String) ?? (plist["CFBundleName"] as? String)
-                found = Manifest(
-                    bundleID: bundleID,
-                    displayName: name.flatMap { $0.isEmpty ? nil : $0 }
-                        ?? (bundleName as NSString).deletingPathExtension,
-                )
-            }
-            guard let found else { throw notAnApp }
-            return found
+            let listed = try manifest(in: ArchiveReader(descriptor: descriptor), refusal: notAnApp)
+            let streamed = try manifest(in: ArchiveReader(descriptor: descriptor, streaming: true), refusal: notAnApp)
+            guard listed == streamed else { throw notAnApp }
+            return listed
         }.value
+    }
+
+    /// One reading of the package: its single Info.plist, or `refusal`.
+    private static func manifest(in reader: ArchiveReader, refusal notAnApp: PackageFailure) throws -> Manifest {
+        var found: Manifest?
+        while let entry = try reader.next() {
+            guard let parts = placedComponents(of: entry.declaredPath) else { throw notAnApp }
+            guard parts.count == 3, parts[0].lowercased() == "payload", parts[1].lowercased().hasSuffix(".app"),
+                  parts[2].lowercased() == "info.plist" else { continue }
+            let data = try reader.data(maximumByteCount: 4 * 1024 * 1024)
+            guard found == nil,
+                  let plist = try PropertyListSerialization
+                  .propertyList(from: data, options: [], format: nil) as? [String: Any],
+                  let bundleID = plist["CFBundleIdentifier"] as? String, !bundleID.isEmpty
+            else { throw notAnApp }
+            let bundleName = parts[1]
+            let name = (plist["CFBundleDisplayName"] as? String) ?? (plist["CFBundleName"] as? String)
+            found = Manifest(
+                bundleID: bundleID,
+                displayName: name.flatMap { $0.isEmpty ? nil : $0 }
+                    ?? (bundleName as NSString).deletingPathExtension,
+            )
+        }
+        guard let found else { throw notAnApp }
+        return found
+    }
+
+    /// The components of the path a member is written to, with empty and `.`
+    /// components folded away the way `open(2)` folds them; nil for a member
+    /// that starts at `/` or names `..`. Split on the byte 0x2F, as the
+    /// kernel splits: `Payload/\u{301}B.app/Info.plist` split on `Character`s
+    /// is two components, and an extractor writes it three deep.
+    static func placedComponents(of declared: String) -> [String]? {
+        guard declared.utf8.first != UInt8(ascii: "/") else { return nil }
+        var parts: [String] = []
+        for component in ArchivePath.components(of: declared) {
+            if component.utf8.elementsEqual(".".utf8) {
+                continue
+            }
+            guard !component.utf8.elementsEqual("..".utf8) else { return nil }
+            parts.append(component)
+        }
+        return parts
     }
 
     // MARK: - Backends

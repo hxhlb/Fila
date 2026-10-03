@@ -141,7 +141,8 @@ enum HTTPAuthentication {
     /// *wrong password* and asks the user for one, so an untouched mount would
     /// throw a dialog every five minutes.
     static func challenges(nonces: DigestNonces, for request: HTTPRequest? = nil) -> [String] {
-        let stale = request.map(nonceExpired) ?? false
+        // Asked before `issue`, which may evict the oldest nonce to make room.
+        let stale = request.map { nonceExpired($0, nonces: nonces) } ?? false
         var digest = #"Digest realm="\#(realm)", qop="auth", algorithm=MD5, nonce="\#(nonces.issue())", opaque="\#(realm)""#
         if stale {
             digest += ", stale=true"
@@ -153,10 +154,16 @@ enum HTTPAuthentication {
     /// a credential it never would have taken. It says nothing about whether
     /// the password was right, and it must not: `stale` only ever means "ask
     /// again with the new nonce", which is safe to say to anyone.
-    private static func nonceExpired(_ request: HTTPRequest) -> Bool {
+    ///
+    /// A nonce this server still accepts is not stale, so the refusal was the
+    /// credential. Saying `stale=true` there too sends a client round again
+    /// with the same wrong password instead of asking the user for the right
+    /// one — dozens of connections and a log full of refusals, and no prompt.
+    private static func nonceExpired(_ request: HTTPRequest, nonces: DigestNonces) -> Bool {
         guard let header = request.header("authorization"),
-              header.lowercased().hasPrefix("digest ") else { return false }
-        return parse(header)["nonce"] != nil
+              header.lowercased().hasPrefix("digest "),
+              let nonce = parse(header)["nonce"] else { return false }
+        return !nonces.isValid(nonce)
     }
 
     /// `key=value` pairs, values optionally quoted, commas inside quotes left

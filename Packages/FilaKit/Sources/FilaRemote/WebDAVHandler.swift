@@ -12,6 +12,9 @@ struct WebDAVHandler {
     let configuration: WebDAVServer.Configuration
     let nonces: DigestNonces
     let log: @Sendable (String) -> Void
+    /// Told when a request on this connection carried accepted credentials.
+    /// See `WebDAVServer.connectionLimit`.
+    let signedIn: @Sendable () -> Void
 
     /// A body this server does not stream — a `PROPFIND` prop list, a `LOCK`
     /// owner — is read and dropped so the next request starts where it should.
@@ -53,6 +56,7 @@ struct WebDAVHandler {
             )
             return false
         }
+        signedIn()
 
         guard Self.hasSameOrigin(request) else {
             try await respond(http, 403, close: true)
@@ -212,35 +216,15 @@ struct WebDAVHandler {
     func isServed(_ path: String) async -> Bool {
         guard configuration.root != "/" else { return true }
 
-        // The daemon canonicalises a path's *parents* but reports its last
-        // component as `lstat` finds it — a file manager has to be able to show
-        // a link rather than what it points at. So an intermediate symlink is
-        // already resolved by the time we see the answer, and a final one has
-        // to be followed here, once: whatever it names is then canonicalised on
-        // its own and resolves everything above itself.
-        var subject = path
-        if let details = try? await service.details(of: path),
-           details.node.kind == .symbolicLink,
-           let target = details.node.link?.target
-        {
-            subject = target.hasPrefix("/")
-                ? target
-                : RemotePath.join(RemotePath.parent(of: details.path), target)
-        }
-
-        // A path that does not exist yet — the target of a `PUT` or a `MKCOL` —
-        // is judged by the directory it would be created in. A parent that does
-        // not exist either is left to fail as the 404 or 409 it is.
-        var resolved = await canonical(subject)
-        if resolved == nil {
-            resolved = await canonical(RemotePath.parent(of: subject))
-        }
-        guard let resolved else { return true }
-        return resolved == configuration.root || resolved.hasPrefix(configuration.root + "/")
-    }
-
-    private func canonical(_ path: String) async -> String? {
-        try? await service.details(of: path).path
+        // Judged by where the kernel will actually land, every link on the
+        // way followed to its end — including the links above a name that
+        // does not exist yet, because `PUT /link/new` creates `new` wherever
+        // `link` points. Anything that cannot be settled is refused.
+        guard let resolved = await service.resolvedPath(of: path) else { return false }
+        // By components, split on the byte `/`: `hasPrefix` compares
+        // `Character`s, and a child whose name starts with a combining mark
+        // makes one grapheme with the separator before it.
+        return resolved == configuration.root || FilaGuard.isAncestor(configuration.root, of: resolved)
     }
 
     // MARK: - Bodies
@@ -330,7 +314,9 @@ struct WebDAVHandler {
         case EEXIST, ENOTEMPTY: return 412
         case EACCES, EPERM, EROFS: return 403
         case ENOSPC, EDQUOT: return 507
-        case ENOTDIR: return 409
+        // A link where the request needs a file — swapped in since the
+        // request was judged — is the state of the resource, not a fault.
+        case ENOTDIR, ELOOP: return 409
         case EISDIR: return 405
         case ENAMETOOLONG: return 400
         default: return 500

@@ -1,4 +1,5 @@
 import FilaBackendUI
+import FilaTerminal
 import UIKit
 
 /// Every destination owns complete chrome before UIKit snapshots either bar.
@@ -169,6 +170,10 @@ final class TabNavigationController: UINavigationController {
     }
 
     override func setViewControllers(_ viewControllers: [UIViewController], animated: Bool) {
+        let outgoing = self.viewControllers.filter { current in !viewControllers.contains { $0 === current } }
+        if refusesRemoving(outgoing) {
+            return
+        }
         dropPendingTransitions()
         for (index, controller) in viewControllers.enumerated() {
             owner?.prepareNavigationItems(for: controller, in: self, ancestors: Array(viewControllers.prefix(index)))
@@ -197,9 +202,12 @@ final class TabNavigationController: UINavigationController {
 
     private func popNow(to destination: UIViewController, animated: Bool) -> [UIViewController]? {
         guard let index = viewControllers.firstIndex(of: destination), index < viewControllers.count - 1 else { return nil }
+        let popped = Array(viewControllers[(index + 1)...])
+        if refusesRemoving(popped) {
+            return nil
+        }
         dropPendingTransitions()
         owner?.prepareNavigationItems(for: destination, in: self, ancestors: Array(viewControllers.prefix(index)))
-        let popped = Array(viewControllers[(index + 1)...])
         transition(to: destination, animated: animated, onto: topViewController) { [weak self] animated in
             guard let self, viewControllers.contains(where: { $0 === destination }) else { return }
             _ = superPopToViewController(destination, animated: animated)
@@ -210,5 +218,24 @@ final class TabNavigationController: UINavigationController {
 
     private func superPopToViewController(_ destination: UIViewController, animated: Bool) -> [UIViewController]? {
         super.popToViewController(destination, animated: animated)
+    }
+
+    // MARK: - A running install keeps its terminal
+
+    /// A package install among `outgoing`, said so instead of letting it go.
+    /// Taking its terminal out of the stack closes the pty and hangs `dpkg`
+    /// up between unpack and configure. Every pop and replacement in a tab
+    /// comes through here — Back from a screen pushed over the install, a
+    /// breadcrumb, a back menu, a jump — so no route needs its own check;
+    /// the install's own screen hides Back, and End Session there is the
+    /// deliberate way out.
+    func refusesRemoving(_ outgoing: [UIViewController]) -> Bool {
+        let installing = outgoing.contains { ($0 as? TerminalViewController)?.refusesLeaving == true }
+        guard installing else { return false }
+        FeedbackAlert.show(
+            String(localized: "Installation in Progress"),
+            message: String(localized: "Wait for the current installation to finish, then try again."),
+        )
+        return true
     }
 }

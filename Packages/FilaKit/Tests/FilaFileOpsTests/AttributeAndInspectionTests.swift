@@ -37,6 +37,30 @@ struct AttributeWriterTests {
         #expect(permissions(of: outsider) == 0o644)
     }
 
+    /// Anyone who can write a folder can hard-link a file they do not own into
+    /// it. A recursive change run as root must not reach that file through the
+    /// name nobody chose to include.
+    @Test
+    func `A recursive change leaves a hard-linked file beneath it alone`() throws {
+        scratch.directory("tree")
+        scratch.directory("outside")
+        let shared = scratch.file("outside/shared.txt", mode: 0o644)
+        #expect(Darwin.link(shared, scratch.path("tree/planted.txt")) == 0)
+        let own = scratch.file("tree/own.txt", mode: 0o644)
+
+        let outcome = try operations.setAttributes(AttributeChange(mode: 0o700, isRecursive: true), at: scratch.path("tree"))
+        #expect(permissions(of: own) == 0o700)
+        #expect(permissions(of: shared) == 0o644)
+        // Left alone on purpose, and said so: a partial change is not reported
+        // as a whole one.
+        #expect(outcome.unchangedSharedFiles == 1)
+
+        // Named directly, it is changed as asked.
+        let direct = try operations.setAttributes(AttributeChange(mode: 0o600), at: scratch.path("tree/planted.txt"))
+        #expect(permissions(of: shared) == 0o600)
+        #expect(direct.unchangedSharedFiles == 0)
+    }
+
     @Test
     func `Times, flags and one extended attribute, each on its own`() throws {
         let file = scratch.file("subject.txt")
@@ -70,6 +94,49 @@ struct AttributeWriterTests {
         let after = try #require(metadata(of: file))
         #expect(after.st_mtimespec.tv_sec == 999_999)
         #expect(after.st_atimespec.tv_sec == 111_111)
+    }
+
+    /// The editor sends the folder's own word with one bit toggled. Each
+    /// descendant takes that bit and keeps its own others: a locked file stays
+    /// locked, and nothing the folder carries is stamped onto the tree.
+    @Test
+    func `A recursive flag change sets and clears only the bits that changed`() throws {
+        let tree = scratch.directory("tree")
+        let locked = scratch.file("tree/locked.txt")
+        let marked = scratch.file("tree/marked.txt")
+        defer { _ = lchflags(locked, 0) }
+        #expect(lchflags(locked, UInt32(UF_IMMUTABLE)) == 0)
+        #expect(lchflags(marked, UInt32(UF_NODUMP | UF_HIDDEN)) == 0)
+        #expect(lchflags(tree, UInt32(UF_NODUMP)) == 0)
+
+        // Turning Hidden on for a folder that carries nodump.
+        try operations.setAttributes(AttributeChange(systemFlags: UInt32(UF_NODUMP | UF_HIDDEN), isRecursive: true), at: tree)
+        #expect(metadata(of: tree)?.st_flags == UInt32(UF_NODUMP | UF_HIDDEN))
+        #expect(metadata(of: locked)?.st_flags == UInt32(UF_IMMUTABLE | UF_HIDDEN))
+        #expect(metadata(of: marked)?.st_flags == UInt32(UF_NODUMP | UF_HIDDEN))
+
+        // And off again: only Hidden goes.
+        try operations.setAttributes(AttributeChange(systemFlags: UInt32(UF_NODUMP), isRecursive: true), at: tree)
+        #expect(metadata(of: tree)?.st_flags == UInt32(UF_NODUMP))
+        #expect(metadata(of: locked)?.st_flags == UInt32(UF_IMMUTABLE))
+        #expect(metadata(of: marked)?.st_flags == UInt32(UF_NODUMP))
+    }
+
+    /// Times arrive over XPC as doubles. Converting NaN, an infinity or a value
+    /// past `time_t` traps, which in the daemon is every peer's jobs gone.
+    @Test(arguments: [Double.nan, .infinity, -.infinity, 1e19, -1e19])
+    func `A time that is not a time is refused, not trapped on`(seconds: Double) throws {
+        let file = scratch.file("subject.txt")
+        let before = try #require(metadata(of: file))
+        let modified = #expect(throws: FilaFailure.self) {
+            try operations.setAttributes(AttributeChange(modified: seconds), at: file)
+        }
+        #expect(modified?.code == .invalidRequest)
+        let accessed = #expect(throws: FilaFailure.self) {
+            try operations.setAttributes(AttributeChange(accessed: seconds), at: file)
+        }
+        #expect(accessed?.code == .invalidRequest)
+        #expect(metadata(of: file)?.st_mtimespec.tv_sec == before.st_mtimespec.tv_sec)
     }
 
     @Test

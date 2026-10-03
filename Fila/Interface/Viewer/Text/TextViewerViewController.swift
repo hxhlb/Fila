@@ -41,14 +41,18 @@ final class TextViewerViewController: TabContentViewController {
     /// `TextSyntax.choices`. Nil means the file's own detection decides.
     private var chosenLanguage: String?
 
-    /// What the bytes decoded as, and what a save re-encodes with. A file that
-    /// was not UTF-8 must not become UTF-8 because an editor opened it: Latin-1
-    /// round-trips every byte, so an unrecognised encoding at least survives
-    /// untouched regions intact.
-    private var encoding: String.Encoding = .utf8
+    /// What the bytes decoded as, and what a save re-encodes with, byte-order
+    /// mark included. See `TextEncoding`.
+    private var encoding = TextEncoding(encoding: .utf8)
+    /// The file as it was read, or as the last save left it. See
+    /// `AtomicSave.save`.
+    private var loadedIdentity: FileIdentity?
     /// The last text known to be on disk. What Cancel restores.
     private var savedText = ""
     private var isTruncated = false
+    /// The file broke every line with CRLF, so a save writes the breaks the
+    /// editor inserted as CRLF too rather than leaving the file mixed.
+    private var usesCRLF = false
     /// False for a truncated file and for one that could not be read at all.
     private var canEdit = false
     private var isEditingFile = false
@@ -196,21 +200,35 @@ final class TextViewerViewController: TabContentViewController {
             let bytes = try file.byteCount > ViewerLimits.editableTextByteCount
                 ? file.read(at: 0, count: Int(ViewerLimits.textPreviewByteCount))
                 : file.readAll(limit: ViewerLimits.editableTextByteCount)
-            let data = Data(bytes.prefix(PreviewLimits.textPrefixByteCount(bytes)))
+            let budget = PreviewLimits.textPrefixByteCount(bytes)
+            let cut = Self.longLineCut(in: bytes, upTo: budget)
+            let data = Data(bytes.prefix(cut ?? budget))
             isTruncated = data.count < file.byteCount
-            let (text, encoding) = Self.decode(data, allowingTruncation: isTruncated)
-            self.encoding = encoding
-            savedText = text
-            canEdit = !isTruncated
-            apply(text: text)
+            let decoded = TextEncoding.decode(data, allowingTruncation: isTruncated)
+            encoding = decoded.encoding
+            loadedIdentity = file.identity
+            savedText = decoded.text
+            canEdit = !isTruncated && decoded.isEditable
+            apply(text: decoded.text)
+            usesCRLF = canEdit && Self.isUniformlyCRLF(decoded.text)
 
-            if isTruncated {
+            if cut != nil {
+                pendingNotice = String(
+                    format: String(localized: "Showing the first %@ of %@. A line in this file is too long to edit. Open it as Hex to see the rest."),
+                    FilePresentation.byteLabel(Int64(data.count)),
+                    FilePresentation.byteLabel(file.byteCount),
+                )
+            } else if isTruncated {
                 pendingNotice = String(
                     format: String(localized: "Showing the first %@ of %@. This file is too large to edit. Open it as Hex to see the rest."),
                     FilePresentation.byteLabel(Int64(data.count)),
                     FilePresentation.byteLabel(file.byteCount),
                 )
-            } else if encoding != .utf8 {
+            } else if !decoded.isEditable {
+                pendingNotice = String(
+                    localized: "This file cannot be edited as text without changing bytes you did not edit. It is shown read-only.",
+                )
+            } else if encoding.encoding == .isoLatin1 {
                 pendingNotice = String(
                     localized: "This file is not valid UTF-8. It is shown and saved without converting it to UTF-8.",
                 )
@@ -222,23 +240,58 @@ final class TextViewerViewController: TabContentViewController {
         refreshBarItems()
     }
 
-    /// UTF-8 first. A truncated read can cut a multi-byte sequence in half, so a
-    /// failure there retreats up to three bytes before giving up — otherwise a
-    /// perfectly good file reads as Latin-1 because of where the cut landed.
-    private static func decode(_ data: Data, allowingTruncation: Bool) -> (String, String.Encoding) {
-        if let text = String(data: data, encoding: .utf8) {
-            return (text, .utf8)
-        }
-        if allowingTruncation {
-            for trim in 1 ... 3 where data.count > trim {
-                if let text = String(data: data.dropLast(trim), encoding: .utf8) {
-                    return (text, .utf8)
+    /// Where the first line longer than `ViewerLimits.textLineByteCount`
+    /// reaches that length, within the first `count` bytes; nil when every
+    /// line is shorter. The cut may split a character, which the truncated
+    /// decode allows for.
+    private static func longLineCut(in data: Data, upTo count: Int) -> Int? {
+        data.withUnsafeBytes { bytes in
+            var lineStart = 0
+            for offset in 0 ..< min(count, bytes.count) {
+                let byte = bytes[offset]
+                if byte == 10 || byte == 13 {
+                    lineStart = offset + 1
+                } else if offset - lineStart >= ViewerLimits.textLineByteCount {
+                    return offset
                 }
             }
+            return nil
         }
-        // Latin-1 maps every one of the 256 byte values to a character and back
-        // again, so it cannot fail and it cannot lose a byte.
-        return (String(data: data, encoding: .isoLatin1) ?? "", .isoLatin1)
+    }
+
+    /// True when the text has line breaks and every one is CRLF.
+    private static func isUniformlyCRLF(_ text: String) -> Bool {
+        var sawBreak = false
+        var previous: UInt8 = 0
+        for byte in text.utf8 {
+            if byte == 10 {
+                guard previous == 13 else { return false }
+                sawBreak = true
+            } else if previous == 13 {
+                return false
+            }
+            previous = byte
+        }
+        return sawBreak && previous != 13
+    }
+
+    /// `text` with every LF that has no CR before it written as CRLF. A file
+    /// that was all CRLF has no such LF of its own, so these are only the
+    /// breaks typed or pasted since: Runestone inserts LF and folds pasted CR
+    /// and CRLF into LF. Its own `.crlf` setting is not the answer — it
+    /// rewrites pasted text twice, and turns one pasted break into three.
+    private static func restoringCRLF(_ text: String) -> String {
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(text.utf8.count)
+        var previous: UInt8 = 0
+        for byte in text.utf8 {
+            if byte == 10, previous != 13 {
+                bytes.append(13)
+            }
+            bytes.append(byte)
+            previous = byte
+        }
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     // MARK: - Text state and theme
@@ -426,8 +479,8 @@ final class TextViewerViewController: TabContentViewController {
 
     private func save() {
         guard canEdit, !isSaving else { return }
-        let text = textView.text
-        guard let data = text.data(using: encoding) else {
+        let text = usesCRLF ? Self.restoringCRLF(textView.text) : textView.text
+        guard let data = encoding.encode(text) else {
             // Only reachable on a file that decoded as Latin-1: the user typed
             // something outside those 256 values. Refusing out loud, because a
             // Save button that does nothing is indistinguishable from a save.
@@ -446,28 +499,38 @@ final class TextViewerViewController: TabContentViewController {
         isSaving = true
         textView.isEditable = false
         refreshBarItems()
+        // The screen's own path, which may be a link: the save lands on the
+        // file it leads to, and the link stays a link.
         let path = details.path
         let link = link
-        Task { [weak self] in
+        let loaded = loadedIdentity
+        Task { @MainActor [weak self] in
             do {
-                try await AtomicSave.write(data, to: path, link: link)
-                await MainActor.run {
+                guard let presenter = self else { return }
+                switch try await AtomicSave.save(data, to: path, expecting: loaded, link: link, from: presenter) {
+                case let .saved(written):
+                    self?.loadedIdentity = written
                     self?.savedText = text
                     self?.isSaving = false
                     self?.hasUnsavedChanges = false
                     self?.leaveEditing()
-                }
-            } catch {
-                await MainActor.run {
-                    // `hasUnsavedChanges` is already true, so its observer will
-                    // not fire and Save would stay greyed out on the one screen
-                    // where pressing it again is the whole point.
+                case .kept:
+                    // The file changed and the person kept it: still editing,
+                    // with Save there to press once they have looked.
                     self?.isSaving = false
                     self?.textView.isEditable = true
                     self?.hasUnsavedChanges = true
                     self?.refreshBarItems()
-                    self?.presentSaveFailure(error)
                 }
+            } catch {
+                // `hasUnsavedChanges` is already true, so its observer will
+                // not fire and Save would stay greyed out on the one screen
+                // where pressing it again is the whole point.
+                self?.isSaving = false
+                self?.textView.isEditable = true
+                self?.hasUnsavedChanges = true
+                self?.refreshBarItems()
+                self?.presentSaveFailure(error)
             }
         }
     }

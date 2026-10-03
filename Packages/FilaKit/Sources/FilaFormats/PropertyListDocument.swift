@@ -19,6 +19,10 @@ public indirect enum PropertyListValue: Sendable, Hashable {
     /// binary does not, and a round trip through either is free to reshuffle.
     /// The view sorts; nothing here pretends to remember.
     case dictionary([String: PropertyListValue])
+    /// A value this tree cannot hold as itself, kept as its text so the rest
+    /// of the document stays readable: an `<integer>` above Int64.max. It is
+    /// never written back — `serialized` refuses a document that holds one.
+    case unrepresentable(String)
 
     init(propertyList object: Any) throws {
         switch object {
@@ -31,7 +35,13 @@ public indirect enum PropertyListValue: Sendable, Hashable {
             } else if value.isFloatingPoint {
                 self = .real(value.doubleValue)
             } else {
-                self = .integer(value.int64Value)
+                // `<integer>` reaches UInt64.max, and Foundation reads the
+                // upper half into a number `int64Value` truncates: UInt64.max
+                // comes back as -1. Kept as its text instead, not as the
+                // truncated number a save that edits another key would write;
+                // the document can still be read, and cannot be saved.
+                let number = value.int64Value
+                self = NSNumber(value: number) == value ? .integer(number) : .unrepresentable(value.stringValue)
             }
         case let value as [Any]:
             self = try .array(value.map(PropertyListValue.init(propertyList:)))
@@ -52,6 +62,18 @@ public indirect enum PropertyListValue: Sendable, Hashable {
         case let .data(value): value
         case let .array(value): value.map(\.propertyListObject)
         case let .dictionary(value): value.mapValues(\.propertyListObject)
+        // Never reached through `serialized`, which refuses the document.
+        case let .unrepresentable(text): text
+        }
+    }
+
+    /// Whether this value, or anything inside it, is `.unrepresentable`.
+    var containsUnrepresentable: Bool {
+        switch self {
+        case .unrepresentable: true
+        case let .array(values): values.contains(where: \.containsUnrepresentable)
+        case let .dictionary(values): values.values.contains(where: \.containsUnrepresentable)
+        default: false
         }
     }
 }
@@ -202,6 +224,12 @@ public struct PropertyListDocument: Sendable, Hashable {
     public func serialized(as format: Format) throws -> Data {
         guard format != .openStep else {
             throw FormatFailure.unsupported("OpenStep property lists can be read but not written")
+        }
+        // Written as anything else, the value would change type or number.
+        guard !root.containsUnrepresentable else {
+            throw FormatFailure.unsupported(
+                String(localized: "an integer outside the signed 64-bit range", bundle: .module),
+            )
         }
         let serializationFormat: PropertyListSerialization.PropertyListFormat = format == .binary ? .binary : .xml
         do {

@@ -25,11 +25,31 @@ struct AtomicReplaceTests {
         #expect(replaced.st_mode & 0o7777 == 0o640)
         #expect(replaced.st_uid == original.st_uid)
         #expect(replaced.st_gid == original.st_gid)
-        #expect(replaced.st_mtimespec.tv_sec == 1_000_000)
         #expect(replaced.st_flags & UInt32(UF_HIDDEN) != 0)
         #expect(extendedAttribute("wiki.qaq.fila.test", at: target) == "kept")
         #expect(replaced.st_size == 9)
         #expect(!exists(temporary))
+    }
+
+    @Test
+    func `A save is modified when it was written and created when the original was`() throws {
+        let target = scratch.file("notes.txt", contents: "old")
+        var old = [timeval(tv_sec: 1_000_000, tv_usec: 0), timeval(tv_sec: 1_000_000, tv_usec: 0)]
+        #expect(lutimes(target, &old) == 0)
+        var request = attrlist()
+        request.bitmapcount = u_short(ATTR_BIT_MAP_COUNT)
+        request.commonattr = attrgroup_t(ATTR_CMN_CRTIME)
+        var created = timespec(tv_sec: 500_000, tv_nsec: 0)
+        #expect(setattrlist(target, &request, &created, MemoryLayout<timespec>.size, 0) == 0)
+
+        let temporary = scratch.file("notes.txt.new", contents: "new bytes")
+        let staged = try #require(metadata(of: temporary))
+        try operations.replaceItem(at: target, withTemporary: temporary)
+
+        let replaced = try #require(metadata(of: target))
+        #expect(replaced.st_mtimespec.tv_sec == staged.st_mtimespec.tv_sec)
+        #expect(replaced.st_mtimespec.tv_sec > 1_000_000)
+        #expect(replaced.st_birthtimespec.tv_sec == 500_000)
     }
 
     @Test

@@ -82,4 +82,31 @@ struct PropertyListTests {
     func `Anything that is not a property list fails as damaged, not as a crash`() {
         #expect(throws: FormatFailure.self) { try PropertyListDocument(data: Data(repeating: 0xFF, count: 32)) }
     }
+
+    /// Foundation reads `<integer>` up to UInt64.max; `int64Value` would
+    /// turn the top of that range negative, and a save would write it so.
+    /// The value is kept as its text beside readable siblings, and the
+    /// document refuses to be written.
+    @Test(arguments: ["18446744073709551615", "9223372036854775808"])
+    func `An integer above Int64.max is shown as itself and never written back`(number: String) throws {
+        let xml = Data("""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <plist version="1.0"><dict><key>Big</key><integer>\(number)</integer><key>Name</key><string>kept</string></dict></plist>
+        """.utf8)
+        let binary = try PropertyListSerialization.data(
+            fromPropertyList: PropertyListSerialization.propertyList(from: xml, format: nil),
+            format: .binary,
+            options: 0,
+        )
+        for data in [xml, binary] {
+            let document = try PropertyListDocument(data: data)
+            #expect(document.root == .dictionary(["Big": .unrepresentable(number), "Name": .string("kept")]))
+            #expect(throws: FormatFailure.self) { try document.serialized() }
+        }
+        let edges = Data("""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <plist version="1.0"><array><integer>9223372036854775807</integer><integer>-9223372036854775808</integer></array></plist>
+        """.utf8)
+        #expect(try PropertyListDocument(data: edges).root == .array([.integer(.max), .integer(.min)]))
+    }
 }

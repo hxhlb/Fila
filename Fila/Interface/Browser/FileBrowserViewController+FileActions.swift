@@ -354,9 +354,16 @@ extension FileBrowserViewController {
             confirm: String.LocalizationValue("Create"),
         ) { [weak self] name in
             guard let self, !name.isEmpty else { return }
+            guard FileActions.isItemName(name) else { return refuseName(name) }
             let path = path(ofName: name)
             run { try await $0.create(template, at: path) }
         }
+    }
+
+    /// The same refusal Rename gives: a typed slash or `..` would create the
+    /// item outside the folder the prompt promised.
+    private func refuseName(_ name: String) {
+        FileActions.refuseName(name)
     }
 
     /// The target is picked, not typed: the folder panel in its file-picking
@@ -375,6 +382,7 @@ extension FileBrowserViewController {
                 confirm: String.LocalizationValue("Create"),
             ) { [weak self] name in
                 guard let self, !name.isEmpty else { return }
+                guard FileActions.isItemName(name) else { return refuseName(name) }
                 let path = path(ofName: name)
                 run { try await $0.create(.symbolicLink(target: target.path), at: path) }
             }
@@ -415,7 +423,10 @@ extension FileBrowserViewController {
             initial: directory,
             confirm: String.LocalizationValue("Go"),
         ) { [weak self] path in
-            guard let self, path.hasPrefix("/") else { return }
+            // Canonical as a `fila://` link's path is: a trailing slash or a
+            // `.` left in would name every child so that it never reads as a
+            // child, and each tap below would re-root the tab.
+            guard let self, let path = FilaLink.canonical(path) else { return }
             open(directory: path)
         }
     }
@@ -435,7 +446,7 @@ extension FileBrowserViewController {
             text: initial,
             doneButtonText: confirm,
             onConfirm: handler,
-        )
+        ).typingLiterally()
         present(alert, animated: true)
     }
 

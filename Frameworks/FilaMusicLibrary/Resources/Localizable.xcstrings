@@ -1,6 +1,88 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "“%@” was added to the music library, but not completely. Delete it from the list before importing it again." : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "أُضيف “%@” إلى مكتبة الموسيقى، ولكن ليس بالكامل. احذفه من القائمة قبل استيراده مرة أخرى."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” wurde der Musikmediathek hinzugefügt, aber nicht vollständig. Lösche es aus der Liste, bevor du es erneut importierst."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” was added to the music library, but not completely. Delete it from the list before importing it again."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” se ha añadido a la biblioteca de música, pero no por completo. Elimínalo de la lista antes de volver a importarlo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” a été ajouté à la bibliothèque musicale, mais pas entièrement. Supprimez-le de la liste avant de l’importer à nouveau."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” è stato aggiunto alla libreria musicale, ma non completamente. Eliminalo dall’elenco prima di importarlo di nuovo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”はミュージックライブラリに追加されましたが、完全ではありません。もう一度読み込む前に、リストから削除してください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” 노래가 음악 보관함에 추가되었지만 완전하지 않습니다. 다시 가져오기 전에 목록에서 삭제하세요."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” foi adicionada à biblioteca de músicas, mas não por completo. Apague-a da lista antes de importá-la novamente."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Песня “%@” добавлена в медиатеку не полностью. Удалите её из списка, прежде чем импортировать снова."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@” đã được thêm vào thư viện nhạc nhưng chưa hoàn chỉnh. Hãy xóa nó khỏi danh sách trước khi nhập lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”已添加到音乐资料库，但不完整。请先从列表中删除它，再重新导入。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "“%@”已加入音樂資料庫，但不完整。請先從列表中刪除，再重新匯入。"
+          }
+        }
+      }
+    },
     "“%@” will be deleted from this device’s music library." : {
       "localizations" : {
         "ar" : {
@@ -3445,6 +3527,88 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "The music library has not finished updating. Refresh the list to check."
+          }
+        }
+      }
+    },
+    "The music library may now hold an incomplete entry for “%@”, which the list may not show. Importing the file again could add the song twice." : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "قد تحتوي مكتبة الموسيقى الآن على إدخال غير مكتمل لـ “%@” قد لا يظهر في القائمة. قد يؤدي استيراد الملف مرة أخرى إلى إضافة الأغنية مرتين."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Musikmediathek enthält jetzt möglicherweise einen unvollständigen Eintrag für “%@”, der in der Liste eventuell nicht angezeigt wird. Wenn du die Datei erneut importierst, wird der Song möglicherweise zweimal hinzugefügt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The music library may now hold an incomplete entry for “%@”, which the list may not show. Importing the file again could add the song twice."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Es posible que la biblioteca de música contenga ahora una entrada incompleta de “%@” que quizá no aparezca en la lista. Si vuelves a importar el archivo, la canción podría añadirse dos veces."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La bibliothèque musicale contient peut-être désormais une entrée incomplète pour “%@”, qui n’apparaît pas forcément dans la liste. Importer à nouveau le fichier pourrait ajouter le morceau deux fois."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La libreria musicale potrebbe ora contenere una voce incompleta per “%@”, che potrebbe non comparire nell’elenco. Importare di nuovo il file potrebbe aggiungere il brano due volte."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ミュージックライブラリに“%@”の不完全な項目が残っている可能性があり、リストには表示されないことがあります。ファイルをもう一度読み込むと、曲が2回追加されることがあります。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "음악 보관함에 “%@”의 불완전한 항목이 남아 있을 수 있으며, 목록에는 표시되지 않을 수 있습니다. 파일을 다시 가져오면 노래가 두 번 추가될 수 있습니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A biblioteca de músicas pode conter agora uma entrada incompleta de “%@”, que talvez não apareça na lista. Importar o arquivo novamente pode adicionar a música duas vezes."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "В медиатеке теперь может быть неполная запись для “%@”, которая может не отображаться в списке. Повторный импорт файла может добавить песню дважды."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Thư viện nhạc có thể đang chứa một mục chưa hoàn chỉnh cho “%@” mà danh sách có thể không hiển thị. Nhập lại tệp có thể khiến bài hát bị thêm hai lần."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音乐资料库中现在可能有“%@”的不完整条目，列表中可能不会显示。再次导入此文件可能会将这首歌曲添加两次。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "音樂資料庫中現在可能有“%@”的不完整項目，列表中可能不會顯示。再次匯入此檔案可能會將這首歌曲加入兩次。"
           }
         }
       }

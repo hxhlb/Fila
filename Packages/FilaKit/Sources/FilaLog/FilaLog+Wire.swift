@@ -59,21 +59,44 @@
 
         /// Fills a `fetchLog` request. `sequence` is the newest the caller already
         /// has; `level` is what the daemon should capture at from now on.
-        static func encodeRequest(since sequence: UInt64, level: FilaLog.Level, into request: xpc_object_t) {
+        /// `instance` is the daemon that `sequence` came from, when known.
+        static func encodeRequest(
+            since sequence: UInt64,
+            level: FilaLog.Level,
+            instance: String? = nil,
+            into request: xpc_object_t,
+        ) {
             xpc_dictionary_set_uint64(request, FilaWireKey.logCursor, sequence)
             xpc_dictionary_set_uint64(request, FilaWireKey.logLevel, UInt64(level.rawValue))
+            if let instance {
+                xpc_dictionary_set_string(request, FilaWireKey.logInstance, instance)
+            }
         }
 
+        /// What this process should answer with. A cursor read from another
+        /// instance — a `filad` launchd has since replaced — counts from the
+        /// start: this process's sequence began again at 1, and paging past the
+        /// old one's last line would hide everything the new one has said.
         static func decodeRequest(_ request: xpc_object_t) -> (sequence: UInt64, level: FilaLog.Level?) {
             let level = xpc_dictionary_get_value(request, FilaWireKey.logLevel).flatMap { _ in
                 FilaLog.Level(
                     rawValue: UInt8(truncatingIfNeeded: xpc_dictionary_get_uint64(request, FilaWireKey.logLevel)),
                 )
             }
+            if let instance = xpc_dictionary_get_string(request, FilaWireKey.logInstance),
+               String(cString: instance) != FilaLog.instance
+            {
+                return (0, level)
+            }
             return (xpc_dictionary_get_uint64(request, FilaWireKey.logCursor), level)
         }
 
-        static func encodeReply(_ records: [FilaLog.Record], dropped: UInt64, into reply: xpc_object_t) {
+        static func encodeReply(
+            _ records: [FilaLog.Record],
+            dropped: UInt64,
+            instance: String = FilaLog.instance,
+            into reply: xpc_object_t,
+        ) {
             let array = xpc_array_create(nil, 0)
             for record in records {
                 let entry = xpc_dictionary_create(nil, nil, 0)
@@ -86,15 +109,22 @@
             }
             xpc_dictionary_set_value(reply, FilaWireKey.logRecords, array)
             xpc_dictionary_set_uint64(reply, FilaWireKey.logDropped, dropped)
+            xpc_dictionary_set_string(reply, FilaWireKey.logInstance, instance)
         }
 
-        static func decodeReply(_ reply: xpc_object_t) -> (records: [FilaLog.Record], dropped: UInt64) {
+        /// `instance` is nil from a daemon that predates it.
+        static func decodeReply(
+            _ reply: xpc_object_t,
+        ) -> (records: [FilaLog.Record], dropped: UInt64, instance: String?) {
             var records: [FilaLog.Record] = []
             if let array = xpc_dictionary_get_array(reply, FilaWireKey.logRecords) {
                 records.reserveCapacity(xpc_array_get_count(array))
                 for index in 0 ..< xpc_array_get_count(array) {
                     let entry = xpc_array_get_value(array, index)
-                    guard let message = xpc_dictionary_get_string(entry, Key.message) else { continue }
+                    // Checked first: libxpc kills the process for a dictionary
+                    // accessor on anything else.
+                    guard xpc_get_type(entry) == FilaXPC.typeDictionary,
+                          let message = xpc_dictionary_get_string(entry, Key.message) else { continue }
                     records.append(FilaLog.Record(
                         sequence: xpc_dictionary_get_uint64(entry, Key.sequence),
                         time: xpc_dictionary_get_double(entry, Key.time),
@@ -111,7 +141,11 @@
                     ))
                 }
             }
-            return (records, xpc_dictionary_get_uint64(reply, FilaWireKey.logDropped))
+            return (
+                records,
+                xpc_dictionary_get_uint64(reply, FilaWireKey.logDropped),
+                xpc_dictionary_get_string(reply, FilaWireKey.logInstance).map { String(cString: $0) },
+            )
         }
     }
 #endif

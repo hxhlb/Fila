@@ -49,12 +49,21 @@ enum ArchiveHelperRun {
         defer { posix_spawnattr_destroy(&attributes) }
         // CLOEXEC_DEFAULT is the descriptor sweep: only the two ends dup'd
         // above survive into the child. SETSIGDEF puts SIGPIPE back, which
-        // libdispatch leaves ignored in this process.
+        // libdispatch leaves ignored in this process. SETSIGMASK starts the
+        // child with nothing blocked: this runs on a dispatch worker, whose
+        // mask blocks SIGTERM, and a cancel sent while the helper was still
+        // starting would stay pending there until its SIG_IGN threw it away.
         var defaulted = sigset_t()
         sigemptyset(&defaulted)
         sigaddset(&defaulted, SIGPIPE)
         posix_spawnattr_setsigdefault(&attributes, &defaulted)
-        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGDEF))
+        var unblocked = sigset_t()
+        sigemptyset(&unblocked)
+        posix_spawnattr_setsigmask(&attributes, &unblocked)
+        posix_spawnattr_setflags(
+            &attributes,
+            Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK),
+        )
 
         var pid: pid_t = 0
         let argv: [UnsafeMutablePointer<CChar>?] = [strdup(helper), nil]
@@ -67,7 +76,6 @@ enum ArchiveHelperRun {
             close(toChild[1]); close(fromChild[0])
             throw FilaFailure(errno: spawned, path: helper)
         }
-        defer { job.detachHelper() }
         job.attachHelper(pid)
 
         // The child reads its task to end of file before it starts, so the
@@ -81,11 +89,19 @@ enum ArchiveHelperRun {
             switch decoded {
             case let .progress(progress): report(progress)
             case let .note(text): note(text)
-            case let .completed(outcome): completion = outcome
+            case let .completed(outcome, skipped):
+                completion = outcome
+                job.skippedItems = max(0, skipped)
             }
         }
         close(fromChild[0])
 
+        // Wait for the exit without reaping it, let go of the pid, then reap:
+        // until `waitpid` the number still belongs to the helper's zombie,
+        // so a cancel landing in between cannot signal whoever inherits it.
+        var exited = siginfo_t()
+        while waitid(P_PID, id_t(pid), &exited, WEXITED | WNOWAIT) < 0, Darwin.errno == EINTR {}
+        job.detachHelper()
         var status: Int32 = 0
         while waitpid(pid, &status, 0) < 0, Darwin.errno == EINTR {}
 
@@ -118,8 +134,17 @@ enum ArchiveHelperRun {
         }
     }
 
-    private static func readLines(from descriptor: Int32, _ each: (Data) -> Void) {
+    /// The longest line read back. A real one is a few hundred bytes; one
+    /// longer than this carries an archive member's name built to be huge —
+    /// a megabyte of control characters escapes to six — and buffering,
+    /// decoding and forwarding it is enough to get a 6 MB daemon killed. It is
+    /// dropped whole, and never held past this.
+    static let maximumLineLength = 64 * 1024
+
+    static func readLines(from descriptor: Int32, _ each: (Data) -> Void) {
         var pending = Data()
+        // Inside a line already over the limit: drop bytes up to its newline.
+        var discarding = false
         var buffer = [UInt8](repeating: 0, count: 64 * 1024)
         while true {
             let got = read(descriptor, &buffer, buffer.count)
@@ -133,13 +158,26 @@ enum ArchiveHelperRun {
             if got == 0 {
                 break
             }
-            pending.append(buffer, count: got)
-            while let newline = pending.firstIndex(of: UInt8(ascii: "\n")) {
-                each(pending[pending.startIndex ..< newline])
-                pending.removeSubrange(pending.startIndex ... newline)
+            var chunk = buffer[0 ..< got]
+            while let newline = chunk.firstIndex(of: UInt8(ascii: "\n")) {
+                if !discarding {
+                    pending.append(contentsOf: chunk[..<newline])
+                    if pending.count <= maximumLineLength {
+                        each(pending)
+                    }
+                }
+                pending.removeAll(keepingCapacity: true)
+                discarding = false
+                chunk = chunk[(newline + 1)...]
+            }
+            guard !discarding else { continue }
+            pending.append(contentsOf: chunk)
+            if pending.count > maximumLineLength {
+                pending.removeAll()
+                discarding = true
             }
         }
-        if !pending.isEmpty {
+        if !discarding, !pending.isEmpty {
             each(pending)
         }
     }

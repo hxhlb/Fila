@@ -34,9 +34,12 @@ public extension FilaLog {
         "basic", "bearer", "digest",
     ]
 
-    /// A header whose entire remaining value is the credential.
-    private static let secretHeaders: Set<String> = [
+    /// A header whose entire remaining value is the credential. Matched at the
+    /// start of a token, so a value written without the space after the colon
+    /// (`authorization:Basic …`) is caught as well.
+    private static let secretHeaders = [
         "authorization:", "proxy-authorization:", "www-authenticate:",
+        "cookie:", "set-cookie:",
     ]
 
     /// Matched against the end of the key in `key=value` and `key:value`, so
@@ -74,11 +77,16 @@ public extension FilaLog {
             }
 
             let lowered = token.lowercased()
-            if secretHeaders.contains(lowered) {
+            if let header = secretHeaders.first(where: { lowered.hasPrefix($0) }) {
                 // A header's value is the credential in full, and it may be
                 // several tokens (`Basic` plus the payload). Nothing after it
                 // on the line is worth more than the leak would cost.
-                tokens.replaceSubrange((index + 1)..., with: [redactedPlaceholder])
+                if lowered.count > header.count {
+                    tokens[index] = String(token.prefix(header.count)) + redactedPlaceholder
+                    tokens.removeSubrange((index + 1)...)
+                } else {
+                    tokens.replaceSubrange((index + 1)..., with: [redactedPlaceholder])
+                }
                 break
             }
             if announcesASecret.contains(lowered) {
@@ -89,8 +97,11 @@ public extension FilaLog {
                 tokens[index] = redacted
                 continue
             }
-            if let redacted = redactingAssignment(token) {
-                tokens[index] = redacted
+            if let assignment = redactingAssignment(token) {
+                tokens[index] = assignment.redacted
+                // `password: hunter2`, `X-Auth-Token: abc` — the separator
+                // ends the token, so the value is the next one.
+                redactNextToken = assignment.valueFollows
             }
         }
         return tokens.joined(separator: " ")
@@ -111,12 +122,30 @@ public extension FilaLog {
     /// `key=value` and `key:value`, when the key ends in a word that names a
     /// secret. A port (`host:8080`) and a time survive because neither key is
     /// on the list.
-    private static func redactingAssignment(_ token: String) -> String? {
-        // Indexed on `token` itself and only the key is lowercased, so the cut
-        // is never taken against a string whose length lowercasing changed.
-        guard let separator = token.firstIndex(where: { $0 == "=" || $0 == ":" }) else { return nil }
-        let key = token[..<separator].lowercased()
-        guard !key.isEmpty, secretKeys.contains(where: { key.hasSuffix($0) }) else { return nil }
-        return token[...separator] + redactedPlaceholder
+    ///
+    /// Every parameter of a query is its own assignment — `/a?x=1&token=…`
+    /// names its secret after the first `=` — and the first secret one takes
+    /// the rest of the token with it, since a value may itself contain a `&`.
+    /// `valueFollows` is a secret key whose separator ends the token, as in
+    /// a header written `X-Auth-Token: abc`: the value is the next token.
+    private static func redactingAssignment(_ token: String) -> (redacted: String, valueFollows: Bool)? {
+        var start = token.startIndex
+        while start < token.endIndex {
+            let end = token[start...].firstIndex(where: { $0 == "?" || $0 == "&" }) ?? token.endIndex
+            // Indexed on `token` itself and only the key is lowercased, so the
+            // cut is never taken against a string whose length lowercasing
+            // changed.
+            if let separator = token[start ..< end].firstIndex(where: { $0 == "=" || $0 == ":" }) {
+                let key = token[start ..< separator].lowercased()
+                if !key.isEmpty, secretKeys.contains(where: { key.hasSuffix($0) }) {
+                    let valueStart = token.index(after: separator)
+                    guard valueStart < token.endIndex else { return (token, true) }
+                    return (token[...separator] + redactedPlaceholder, false)
+                }
+            }
+            guard end < token.endIndex else { break }
+            start = token.index(after: end)
+        }
+        return nil
     }
 }

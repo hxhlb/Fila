@@ -227,9 +227,10 @@ final class BrowserTabStore {
     /// cap. The caller decides what to do instead — nothing here silently
     /// re-roots a tab a person is using.
     @discardableResult
-    func open(_ path: String) -> BrowserTab? {
+    func open(_ path: String, selection: String? = nil) -> BrowserTab? {
         guard !isFull else { return nil }
-        let tab = BrowserTab(path: path)
+        var tab = BrowserTab(path: path)
+        tab.selection = selection
         loaded.tabs.append(tab)
         loaded.currentID = tab.id
         save()
@@ -243,14 +244,17 @@ final class BrowserTabStore {
     /// keeps sending links must not be able to grow a preference without bound
     /// — nor to push a person's own tabs out of the switcher. A path already
     /// open is switched to rather than opened twice, so a page that sends the
-    /// same link repeatedly costs nothing. Opening still happens either way,
-    /// because the caller navigates regardless of what this answers.
-    func openFromLink(_ path: String) {
+    /// same link repeatedly costs nothing. Answers false at the cap when the
+    /// path is not open yet: the caller then opens it in the current tab.
+    ///
+    /// `selection` is the row a file link names in `path`. A new tab opens
+    /// with it selected; a tab already there is switched to as it stands.
+    func openFromLink(_ path: String, select selection: String? = nil) -> Bool {
         if let existing = tabs.first(where: { $0.path == path }) {
             select(existing.id)
-            return
+            return true
         }
-        open(path)
+        return open(path, selection: selection) != nil
     }
 
     func select(_ id: UUID) {

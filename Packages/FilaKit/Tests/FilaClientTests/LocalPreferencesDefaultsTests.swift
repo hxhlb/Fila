@@ -58,6 +58,19 @@ struct LocalPreferencesDefaultsTests {
     }
 
     @Test
+    func `Legacy layout keys that name one folder load as one entry instead of trapping`() throws {
+        try withDefaults { defaults in
+            // An older build stored whatever spelling it was handed.
+            defaults.set(
+                ["/var/mobile/Documents": "grid", "/var/mobile/Documents/": "list", "var/mobile/Documents": "list"],
+                forKey: "folderLayouts",
+            )
+            let loaded = try #require(try LocalPreferencesDefaults(defaults: defaults).load())
+            #expect(try loaded.files.folderLayouts == [ServicePath("var/mobile/Documents"): .grid], "the plain spelling wins")
+        }
+    }
+
+    @Test
     func `Saving writes the legacy keys, dated visits beside the path list, and round-trips`() throws {
         try withDefaults { defaults in
             let storage = LocalPreferencesDefaults(defaults: defaults)

@@ -273,7 +273,7 @@ private final class RecordingAccess: LocalFileAccess, @unchecked Sendable {
         try await inner.remove(path, directory: directory, overrideGuard: overrideGuard)
     }
 
-    func setAttributes(_ change: AttributeChange, at path: String) async throws {
+    func setAttributes(_ change: AttributeChange, at path: String) async throws -> AttributeOutcome {
         try await inner.setAttributes(change, at: path)
     }
 

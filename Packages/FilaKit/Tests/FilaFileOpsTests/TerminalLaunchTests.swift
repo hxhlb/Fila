@@ -37,6 +37,19 @@ struct TerminalLaunchTests {
         return try TerminalSpawn.run(plan, sessionHolder: TerminalSessionFixture.executable, columns: request.columns, rows: request.rows)
     }
 
+    /// Close the terminal, hang the session up and wait until it is reaped. A
+    /// shell saves its history into HOME on SIGHUP, and HOME is a scratch
+    /// directory removed when the test returns: one still writing leaves the
+    /// directory behind. The master goes first, because an exiting process
+    /// waits for its terminal output to drain while nobody reads it.
+    private func end(_ launch: TerminalLaunch) {
+        close(launch.descriptor)
+        let ended = DispatchSemaphore(value: 0)
+        launch.process.watch { ended.signal() }
+        launch.process.terminate()
+        #expect(ended.wait(timeout: .now() + 10) == .success)
+    }
+
     @Test
     func `launch confirmation distinguishes EOF, errno, and damaged reports`() throws {
         var failure: Int32 = ENOEXEC
@@ -139,25 +152,23 @@ struct TerminalLaunchTests {
         // there is no arguments field on the request, so a caller cannot ask
         // for `sh -c`.
         let launch = try openTerminal(TerminalRequest(executable: "/bin/sh"))
-        defer { close(launch.descriptor) }
+        defer { end(launch) }
         let script = "printf 'TERM=%s PATH_HEAD=%s\\n' \"$TERM\" \"$PATH\"\n"
         _ = script.withCString { write(launch.descriptor, $0, strlen($0)) }
         let output = readUntil(launch.descriptor, contains: "TERM=xterm-256color")
         #expect(output.contains("TERM=xterm-256color"))
         #expect(output.contains("/usr/local/sbin"))
-        launch.process.terminate()
     }
 
     @Test
     func `a window-size change reaches the program`() throws {
         let launch = try openTerminal(TerminalRequest(executable: "/bin/sh", columns: 80, rows: 24))
-        defer { close(launch.descriptor) }
+        defer { end(launch) }
         var size = winsize(ws_row: 40, ws_col: 132, ws_xpixel: 0, ws_ypixel: 0)
         #expect(ioctl(launch.descriptor, TIOCSWINSZ, &size) == 0)
         let script = "stty size\n"
         _ = script.withCString { write(launch.descriptor, $0, strlen($0)) }
         #expect(readUntil(launch.descriptor, contains: "40 132").contains("40 132"))
-        launch.process.terminate()
     }
 
     @Test
@@ -277,7 +288,7 @@ struct TerminalLaunchTests {
     func `a session reports the user it got, and the child is that user with no root in it`() throws {
         for user in TerminalUser.allCases {
             let launch = try openTerminal(TerminalRequest(executable: "/bin/sh", user: user))
-            defer { close(launch.descriptor) }
+            defer { end(launch) }
             // Not root, so `.mobile` has nothing to drop and both cases resolve
             // to this process's own user. On a device these differ; here the
             // assertion that matters is that the answer is measured rather than
@@ -292,7 +303,6 @@ struct TerminalLaunchTests {
             let expected = "RUID=\(getuid()) EUID=\(getuid())"
             #expect(readUntil(launch.descriptor, contains: expected).contains(expected))
             #expect(getuid() != 0, "a root harness would make the line above vacuous")
-            launch.process.terminate()
         }
     }
 
@@ -612,7 +622,7 @@ struct TerminalLaunchTests {
         let package = bootstrap.file("package.deb")
         let plan = try TerminalPlan(request: TerminalRequest(package: package), layout: BootstrapLayout(kind: .rootless(prefix: bootstrap.root)))
         let launch = try TerminalSpawn.run(plan, sessionHolder: TerminalSessionFixture.executable, columns: 80, rows: 24)
-        defer { close(launch.descriptor); launch.process.terminate() }
+        defer { end(launch) }
         let output = readUntil(launch.descriptor, contains: "INSTALL_STARTED")
         #expect(output.contains("STARTUP_STOPPED"))
         #expect(!output.contains("INSTALL_STARTED"))
@@ -648,7 +658,7 @@ struct TerminalLaunchTests {
         for request in requests {
             let plan = try TerminalPlan(request: request, layout: BootstrapLayout(kind: .rootless(prefix: bootstrap.root)))
             let launch = try TerminalSpawn.run(plan, sessionHolder: TerminalSessionFixture.executable, columns: 120, rows: 24)
-            defer { close(launch.descriptor); launch.process.terminate() }
+            defer { end(launch) }
             let binary = request.executable == "/usr/bin/env"
             let output = readUntil(launch.descriptor, contains: binary ? "FILA_INSTALL_TEST=login-interactive" : "DONE")
                 .replacingOccurrences(of: "\r\n", with: "\n")

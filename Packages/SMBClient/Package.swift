@@ -2,7 +2,7 @@
 import PackageDescription
 
 /// kishikawakatsumi/SMBClient, vendored. See FILA-VENDOR.md beside this file
-/// for the pinned revision, the licence and the one change made to it.
+/// for the pinned revision, the licence and the changes made to it.
 let package = Package(
     name: "SMBClient",
     platforms: [

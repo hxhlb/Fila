@@ -209,7 +209,12 @@
         }
 
         override public func arrange(_ items: [FileEntry]) -> [FileEntry] {
-            items.sorted { a, b in
+            // Deduplicated by name, the first arrival kept: a server pages a
+            // directory that is live — or answers however it likes — and one
+            // entry arriving twice would put two rows with the same identity
+            // into the snapshot, which is a crash rather than a glitch.
+            var seen = Set<String>()
+            return items.filter { seen.insert($0.name).inserted }.sorted { a, b in
                 if a.entersDirectory != b.entersDirectory {
                     return a.entersDirectory
                 }
@@ -270,7 +275,7 @@
                     FileServiceBrowserViewController(backend: backend, path: child), animated: true,
                 )
             } else {
-                snapshot(entry, at: child) { [weak self] file, release in
+                snapshot(entry, at: child, forPreview: true) { [weak self] file, release in
                     guard let self else { release(); return }
                     BackendScreens.shell?.preview(file, title: entry.name, from: self, released: release)
                 }
@@ -281,11 +286,20 @@
         /// card, and hands the file over with the closure that removes the
         /// workspace. A failed or cancelled download removes it itself and
         /// says why, except a cancellation, which is silent.
+        ///
+        /// The file is written as `name`, the entry's own unless a save chose
+        /// another. Only a preview is held to `previewSizeLimit`: a save is a
+        /// transfer the user asked to keep, and the limit's card sends them to
+        /// it.
         private func snapshot(
-            _ entry: FileEntry, at child: ServicePath, then use: @escaping @MainActor (URL, @escaping () -> Void) -> Void,
+            _ entry: FileEntry,
+            at child: ServicePath,
+            named name: String? = nil,
+            forPreview: Bool,
+            then use: @escaping @MainActor (URL, @escaping () -> Void) -> Void,
         ) {
             guard let shell = BackendScreens.shell else { return }
-            if let size = entry.size, size > Self.previewSizeLimit {
+            if forPreview, let size = entry.size, size > Self.previewSizeLimit {
                 shell.alert(
                     title: String(localized: "File Too Large to Preview", bundle: bundle),
                     message: String(
@@ -303,7 +317,7 @@
                 do {
                     let directory = try await shell.makeWorkspace()
                     workspace = directory
-                    let target = directory.appendingPathComponent(entry.name)
+                    let target = directory.appendingPathComponent(name ?? entry.name)
                     try await shell.withProgress(
                         title: String(localized: "Downloading…", bundle: bundle),
                         message: String(localized: "Downloading “\(entry.name)” from the server.", bundle: bundle),
@@ -338,18 +352,23 @@
             snapshotTask = task
         }
 
-        /// Saves `entry` into the local filesystem: a snapshot, then the app's
-        /// own copy job into the chosen folder, then the workspace goes.
+        /// Saves `entry` into the local filesystem: a snapshot under the name
+        /// the picker chose, then the app's own copy job into the chosen
+        /// folder, then the workspace goes.
         private func save(_ entry: FileEntry) {
             guard let child = try? path.appending(entry.name), let shell = BackendScreens.shell else { return }
             let picker = shell.saveDestinationPicker(fileName: entry.name) { [weak self] destination in
                 guard let self else { return }
-                snapshot(entry, at: child) { file, release in
+                // The picker's name field and a tapped file both name the
+                // target; the copy job keeps the name the snapshot has.
+                let chosen = destination.lastPathComponent
+                let name = chosen.isEmpty || chosen == "." || chosen == ".." ? entry.name : chosen
+                snapshot(entry, at: child, named: name, forPreview: false) { file, release in
                     Task { @MainActor in
                         defer { release() }
                         do {
-                            try await shell.copy(file, into: destination.deletingLastPathComponent().path, subtitle: entry.name)
-                            shell.toast(String(localized: "Saved “\(entry.name)”", bundle: self.bundle))
+                            try await shell.copy(file, into: destination.deletingLastPathComponent().path, subtitle: name)
+                            shell.toast(String(localized: "Saved “\(name)”", bundle: self.bundle))
                         } catch {
                             shell.alert(
                                 title: String(localized: "Could Not Save", bundle: self.bundle),

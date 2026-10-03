@@ -49,11 +49,11 @@ extension RootSplitViewController {
         }
     }
 
-    /// Not private, and only for one caller inside the app: *Show Original* on
-    /// a symlink wants exactly what `fila://reveal` and `fila://open` already
-    /// do — a directory is opened, a file is revealed with its row selected —
-    /// and a second copy of that would be a second place for the two to drift
-    /// apart. Everything else still arrives as a URL.
+    /// Not private: *Show Original* on a symlink, a search hit and a module's
+    /// reveal want exactly what `fila://reveal` and `fila://open` already do —
+    /// a directory is opened, a file is revealed with its row selected — and a
+    /// second copy of that would be a second place for them to drift apart.
+    /// Everything else still arrives as a URL.
     func follow(_ link: FilaLink) {
         switch link {
         case .activate:
@@ -61,9 +61,11 @@ extension RootSplitViewController {
         case let .locate(path):
             let navigation = content.navigation
             locate(path) { folder, name in
-                // A tab the person has since moved is theirs now; the link
-                // does not pull it back.
-                guard self.content.navigation === navigation else { return }
+                // Another tab chosen meanwhile is the person's choice, and
+                // the link does not pull them back. A cold launch still
+                // connecting had no tab to choose from: the first one
+                // arriving during the lookup is not a choice.
+                guard navigation == nil || self.content.navigation === navigation else { return }
                 self.open(folder, select: name)
             }
         case let .directory(path):

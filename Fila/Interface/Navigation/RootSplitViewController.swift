@@ -396,7 +396,7 @@ final class RootSplitViewController: UISplitViewController {
     /// either way. `select` names the file the link pointed at, in `path`.
     func openFromLink(_ path: String, select: String? = nil) {
         content.captureCurrentTab()
-        guard tabs.openFromLink(path, select: select) else {
+        guard tabs.openFromLink(path, selection: select) else {
             openInCurrentTabAtCap(path, select: select)
             if !isCollapsed {
                 show(.secondary)

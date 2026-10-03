@@ -249,7 +249,7 @@ final class BrowserTabStore {
     ///
     /// `selection` is the row a file link names in `path`. A new tab opens
     /// with it selected; a tab already there is switched to as it stands.
-    func openFromLink(_ path: String, select selection: String? = nil) -> Bool {
+    func openFromLink(_ path: String, selection: String? = nil) -> Bool {
         if let existing = tabs.first(where: { $0.path == path }) {
             select(existing.id)
             return true

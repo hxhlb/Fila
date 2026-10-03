@@ -63,7 +63,11 @@
     ///
     /// A horizontal scroller rather than a truncated label: paths on a jailbroken
     /// device are long and the interesting part is usually the end, so it scrolls to
-    /// the trailing edge and every ancestor stays one tap away.
+    /// the trailing edge and every ancestor stays one tap away. A current name too
+    /// long for the bar is the exception: the bar shows its beginning — the
+    /// chevron before it, its icon, the first characters — because a file is
+    /// recognised by how its name starts, and its tail is often a date or an
+    /// extension.
     ///
     /// One line of attributed text rather than a row of buttons: the gaps around
     /// each chevron are then the font's own, the same on both sides of every
@@ -182,7 +186,7 @@
             // Icons arrive asynchronously. Redrawing the same path with them must
             // not pull the user away from an ancestor they scrolled to.
             let shouldReveal = shown.map(\.target) != crumbs.map(\.target) || revealsCurrentComponent
-                || abs(contentOffset.x - max(0, contentSize.width - bounds.width)) < 1
+                || abs(contentOffset.x - revealedOffset) < 1
             shown = crumbs
             let line = NSMutableAttributedString()
             var actions: [UIAccessibilityCustomAction] = []
@@ -341,7 +345,25 @@
             }
             guard revealsCurrentComponent, window != nil, bounds.width > 0, contentSize.width > 0 else { return }
             revealsCurrentComponent = false
-            setContentOffset(CGPoint(x: max(0, contentSize.width - bounds.width), y: 0), animated: false)
+            setContentOffset(CGPoint(x: revealedOffset, y: 0), animated: false)
+        }
+
+        /// Where revealing the current crumb scrolls: the trailing edge, unless
+        /// that would cut off the crumb's start — then the separator before it
+        /// starts at the bar's edge, so its chevron leads and no sliver of the
+        /// previous name shows.
+        private var revealedOffset: CGFloat {
+            let end = max(0, contentSize.width - bounds.width)
+            // The separator is two spaces, the chevron and two spaces: five
+            // characters before the current crumb.
+            let separator = currentTapRange.location - 5
+            guard separator >= 0,
+                  let start = text.position(from: text.beginningOfDocument, offset: separator),
+                  let next = text.position(from: start, offset: 1),
+                  let range = text.textRange(from: start, to: next) else { return end }
+            let glyph = text.convert(text.firstRect(for: range), to: self)
+            guard !glyph.isEmpty, !glyph.isInfinite else { return end }
+            return min(end, max(0, glyph.minX))
         }
 
         override public func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {

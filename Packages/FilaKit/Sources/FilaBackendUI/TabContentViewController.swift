@@ -213,11 +213,16 @@
         /// Installs the screen's search controller where the OS puts one: in
         /// the navigation bar, and on iOS 26 integrated into the bottom bar's
         /// leading slot, where the local browser's Search button is.
+        ///
+        /// Always as a button there, which opens the field across the bar.
+        /// `.integrated` draws a field wherever the bar is wide, and the
+        /// breadcrumb leaves the slot one button wide: an iPad got a field
+        /// cut to "Sea…".
         public func installSearch(_ controller: UISearchController) {
             navigationItem.searchController = controller
             navigationItem.hidesSearchBarWhenScrolling = false
             if #available(iOS 26.0, *) {
-                navigationItem.preferredSearchBarPlacement = .integrated
+                navigationItem.preferredSearchBarPlacement = .integratedButton
                 searchPlacementItem = navigationItem.searchBarPlacementBarButtonItem
             }
         }
@@ -299,7 +304,12 @@
                 items.append(bar?.searchItem ?? ownSearchItem)
             }
             if !crumbs.isEmpty {
-                items += [bar?.leadingSpace ?? ownLeadingSpace, bar?.pathBarItem ?? ownPathBarItem]
+                // With nothing leading, the breadcrumb starts at the bar's edge
+                // instead of leaving Search's slot empty; alone, it is centred.
+                if !items.isEmpty || bar == nil {
+                    items.append(bar?.leadingSpace ?? ownLeadingSpace)
+                }
+                items.append(bar?.pathBarItem ?? ownPathBarItem)
             }
             if let bar {
                 items += [bar.trailingSpace, bar.tabsItem]
@@ -372,19 +382,39 @@
             let hasTrailing = bar != nil
             let reserved: CGFloat
             if #available(iOS 26.0, *) {
-                // The bar centres the breadcrumb like a title. Sized off one side
-                // only — a viewer has Tabs and no Search — it runs into Tabs, and
-                // the two capsules melt into one.
-                let slot = FilaUI.minimumTapTarget + 2 * FilaUI.Spacing.large
-                reserved = 2 * (FilaUI.Spacing.large + FilaUI.Spacing.medium) + 2 * FilaUI.Spacing.small
-                    + (hasLeading || hasTrailing ? 2 * slot : 0)
+                // The gap between capsules equals the bar's outer margin, so
+                // the row reads margin, button, gap, breadcrumb, gap, button,
+                // margin with one spacing throughout; without Search the
+                // breadcrumb takes its slot and starts at the margin. The toolbar is drawn by
+                // a hosting view that publishes none of this geometry (its
+                // layout margins say 8), so these are the drawn sizes,
+                // measured: a 28-point margin, a 48-point button capsule, and
+                // a capsule 5 points wider than the custom view on each side.
+                let margin: CGFloat = 28
+                let button: CGFloat = 48
+                let capsuleInset: CGFloat = 5
+                reserved = 2 * capsuleInset + 2 * margin
+                    + (hasLeading ? button + margin : 0) + (hasTrailing ? button + margin : 0)
             } else {
                 let slot = FilaUI.minimumTapTarget + FilaUI.Spacing.large + FilaUI.Spacing.small
                 reserved = 2 * FilaUI.Spacing.large + (hasLeading ? slot : 0) + (hasTrailing ? slot : 0)
             }
             let target = max(FilaUI.minimumTapTarget, available - reserved)
-            if abs((width.layoutConstraints.first?.constant ?? 0) - target) > 0.5 {
+            let current = width.layoutConstraints.first?.constant ?? 0
+            guard abs(current - target) > 0.5 else { return }
+            // A page that gains or loses Search's slot while the bar is on
+            // screen grows or shrinks the breadcrumb into it rather than
+            // jumping; the first sizing is not a change to show.
+            let barView = pathBar.superview
+            guard current > FilaUI.minimumTapTarget, pathBar.window != nil, let barView,
+                  !UIAccessibility.isReduceMotionEnabled else {
                 width.update(offset: target)
+                return
+            }
+            barView.layoutIfNeeded()
+            width.update(offset: target)
+            UIView.animate(withDuration: 0.3, delay: 0, options: [.beginFromCurrentState, .curveEaseInOut]) {
+                barView.layoutIfNeeded()
             }
         }
     }

@@ -26311,6 +26311,88 @@
         }
       }
     },
+    "Items not extracted: %lld. Settings › Log lists each one and why." : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "العناصر التي لم تُستخرج: %lld. يعرض «الإعدادات › السجل» كل عنصر منها وسببه."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht extrahierte Objekte: %lld. Einstellungen › Protokoll nennt jedes einzelne und den Grund."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Items not extracted: %lld. Settings › Log lists each one and why."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elementos no extraídos: %lld. Ajustes › Registro muestra cada uno y el motivo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Éléments non extraits : %lld. Réglages › Journal indique chacun et la raison."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elementi non estratti: %lld. Impostazioni › Log elenca ciascuno e il motivo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "展開されなかった項目: %lld。設定 › ログに各項目とその理由が記録されています。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "추출되지 않은 항목: %lld. 설정 › 로그에서 각 항목과 이유를 확인할 수 있습니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Itens não extraídos: %lld. Ajustes › Registro mostra cada um e o motivo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не извлечено объектов: %lld. В разделе «Настройки › Журнал» указан каждый и причина."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Các mục không được giải nén: %lld. Cài đặt › Nhật ký liệt kê từng mục và lý do."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未解压的项目：%lld 个。“设置 › 日志”中列出了每一项及原因。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未解壓縮的項目：%lld 個。「設定 › 記錄」中列出了每一項及原因。"
+          }
+        }
+      }
+    },
     "Items on this server can be copied but not moved. They cannot be deleted from this location." : {
       "localizations" : {
         "ar" : {
@@ -46024,6 +46106,88 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "部分檔案未更改"
+          }
+        }
+      }
+    },
+    "Some Items Were Not Extracted" : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لم يتم استخراج بعض العناصر"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einige Objekte wurden nicht extrahiert"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Some Items Were Not Extracted"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Algunos elementos no se extrajeron"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Certains éléments n’ont pas été extraits"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alcuni elementi non sono stati estratti"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一部の項目は展開されませんでした"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "일부 항목이 추출되지 않음"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alguns itens não foram extraídos"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Некоторые объекты не извлечены"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Một số mục không được giải nén"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分项目未解压"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分項目未解壓縮"
           }
         }
       }

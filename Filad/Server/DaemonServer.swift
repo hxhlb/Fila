@@ -517,7 +517,7 @@ final class DaemonServer: @unchecked Sendable {
                 FilaLog.level(for: outcome.code),
                 Self.describe("job \(identifier)", path: outcome.path ?? "-", failure: outcome),
             )
-            events.finish(JobEvent.completed(outcome).encoded(jobIdentifier: identifier))
+            events.finish(JobEvent.completed(outcome, skipped: job.skippedItems).encoded(jobIdentifier: identifier))
             self?.controlQueue.async { self?.jobFinished(identifier, key: key) }
         }
         return identifier

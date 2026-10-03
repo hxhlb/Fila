@@ -89,11 +89,17 @@ public extension FileOperations {
             // Owner before mode: chown clears setuid and setgid.
             try filaCheck(source) { fchown(descriptor, original.st_uid, original.st_gid) }
             try filaCheck(source) { fchmod(descriptor, original.st_mode & 0o7777) }
-            var times = [
-                filaTimeValue(filaSeconds(original.st_atimespec)),
-                filaTimeValue(filaSeconds(original.st_mtimespec)),
-            ]
-            try filaCheck(source) { futimes(descriptor, &times) }
+            // The access and modification times stay the temporary's own, the
+            // time of this save: sync, backup and `make` decide by them, and
+            // an edit that kept the old time could be skipped as unchanged.
+            // The creation time is the original's, as a safe save on the Mac
+            // keeps it. A filesystem with no creation time refuses it, and
+            // that is no reason to lose the save.
+            var request = attrlist()
+            request.bitmapcount = u_short(ATTR_BIT_MAP_COUNT)
+            request.commonattr = attrgroup_t(ATTR_CMN_CRTIME)
+            var created = original.st_birthtimespec
+            _ = fsetattrlist(descriptor, &request, &created, MemoryLayout<timespec>.size, 0)
         } else if permissions == nil {
             _ = try resolveForWrite(source, changesInode: true)
             try filaApplyAttributes(.newItemDefaults, to: sourceName, in: directory, path: source, flags: nil)

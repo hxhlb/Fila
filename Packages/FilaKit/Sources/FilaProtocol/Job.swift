@@ -95,8 +95,11 @@ public struct JobRequest: Sendable, Hashable, Codable {
 public enum JobEvent: Sendable, Hashable {
     case progress(JobProgress)
     /// The job is over. `code` is `.success`, `.cancelled`, or a failure, and
-    /// nothing more arrives for this id.
-    case completed(FilaFailure)
+    /// nothing more arrives for this id. `skipped` counts the members an
+    /// extraction left out, each named with its reason in the log; it is zero
+    /// for every other job. It rides here and not on the last progress, which
+    /// the daemon may drop once the completion is ready to go.
+    case completed(FilaFailure, skipped: Int64)
 
     public var isFinal: Bool {
         if case .completed = self {

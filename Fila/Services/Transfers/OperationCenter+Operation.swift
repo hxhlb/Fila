@@ -83,6 +83,9 @@ extension OperationCenter {
         /// there is nothing to put back after a failure or a cancellation.
         var undo: Undo?
         var feedback: Feedback = .automatic
+        /// Archive members an extraction left out, from its completion. The
+        /// log names each one with its reason; the count is what is shown.
+        var skippedItems: Int64 = 0
         /// Called once, with the daemon's own verdict, when the operation ends.
         ///
         /// Resumes `awaitJob` callers only after the row holds the final result.

@@ -8,8 +8,8 @@ import UIKit
 /// The only way an editor in this app writes a file.
 ///
 /// Write a temporary beside the target, then ask the daemon to put it in place:
-/// `replaceItem` carries the original's mode, owner, times, xattrs and BSD flags
-/// across and `rename(2)`s, so a power cut during a save leaves either the old
+/// `replaceItem` carries the original's mode, owner, creation time, xattrs and
+/// BSD flags across and `rename(2)`s, so a power cut during a save leaves either the old
 /// file or the new one and never half of either. A half-written launchd plist is
 /// a boot loop on a phone that cannot be booted into anything else.
 ///
@@ -84,9 +84,9 @@ enum AtomicSave {
     ///
     /// Tabs keep an editor for as long as they like, and in that time another
     /// tab, a paste or a package manager can write the same file. Compared by
-    /// inode, size and modification time: a save through `replaceItem` keeps
-    /// the time and changes the inode, a write in place keeps the inode and
-    /// changes the time.
+    /// inode, size and modification time: a save through `replaceItem`
+    /// changes the inode, a write in place keeps the inode and changes the
+    /// time.
     ///
     /// `loaded` nil skips the check.
     @MainActor

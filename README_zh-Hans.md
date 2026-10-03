@@ -65,8 +65,8 @@
 | `fila://` | 唤起 Fila，保留当前页面或在冷启动时恢复状态 |
 | `fila://view/var/mobile/Documents` | 直接进入目录；文件则在父目录中选中，不打开预览 |
 | `fila:///var/mobile/Documents` | 文稿文件夹 |
-| `fila://open?path=/var/mobile` | 指定文件夹 |
-| `fila://open?path=/var/mobile&tab=new` | 在新标签页中打开该文件夹 |
+| `fila://open?path=/var/mobile` | 指定文件夹；文件则在父目录中选中 |
+| `fila://open?path=/var/mobile&tab=new` | 在新标签页中打开该文件夹；文件则在新标签页的父目录中选中 |
 | `fila://reveal?path=/etc/hosts` | 包含该文件的文件夹 |
 | `fila://view?path=/etc/hosts` | 在查看器中打开该文件 |
 | `fila://info?path=/etc/hosts` | 该文件的属性 |

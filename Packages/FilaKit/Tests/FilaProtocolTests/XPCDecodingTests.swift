@@ -9,8 +9,8 @@
     // a dictionary accessor on anything else by killing the process, and a
     // killed `filad` takes every running job of every peer with it. The two
     // nested-entry cases crashed the test process before their decoders
-    // checked the type; the times passed decoding and trapped later, in
-    // `filaTimeValue`.
+    // checked the type; the times passed decoding and trapped later, where
+    // they were converted to a kernel time.
 
     @Suite("Decoding what a peer should not have sent")
     struct XPCDecodingTests {

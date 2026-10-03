@@ -89,7 +89,9 @@ enum ArchiveHelperRun {
             switch decoded {
             case let .progress(progress): report(progress)
             case let .note(text): note(text)
-            case let .completed(outcome): completion = outcome
+            case let .completed(outcome, skipped):
+                completion = outcome
+                job.skippedItems = max(0, skipped)
             }
         }
         close(fromChild[0])

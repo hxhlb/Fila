@@ -27,6 +27,10 @@ public final class FileJob: @unchecked Sendable {
     /// cannot land on whatever process inherits the number.
     private var helper: pid_t = 0
 
+    /// Members an extraction's helper left out, from its last line; zero for
+    /// every other job. Read it once `run` has returned, on the thread that ran it.
+    public internal(set) var skippedItems: Int64 = 0
+
     public init(request: JobRequest, operations: FileOperations) {
         self.request = request
         self.operations = operations

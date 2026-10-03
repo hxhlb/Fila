@@ -71,9 +71,10 @@
                 xpc_dictionary_set_int64(message, FilaWireKey.itemsDone, progress.itemsDone)
                 xpc_dictionary_set_int64(message, FilaWireKey.itemsTotal, progress.itemsTotal)
                 xpc_dictionary_set_string(message, FilaWireKey.path, progress.currentPath)
-            case let .completed(failure):
+            case let .completed(failure, skipped):
                 xpc_dictionary_set_bool(message, FilaWireKey.jobPhase, true)
                 failure.encode(into: message)
+                xpc_dictionary_set_int64(message, FilaWireKey.skippedItems, skipped)
             }
             return message
         }
@@ -88,13 +89,16 @@
             if xpc_dictionary_get_bool(message, FilaWireKey.jobPhase) {
                 let code = FilaReplyCode(rawValue: xpc_dictionary_get_int64(message, FilaWireKey.code))
                     ?? .operationFailed
-                return (identifier, .completed(FilaFailure(
-                    code: code,
-                    systemError: Int32(truncatingIfNeeded: xpc_dictionary_get_int64(message, FilaWireKey.errno)),
-                    path: path,
-                    reason: xpc_dictionary_get_string(message, FilaWireKey.failureReason)
-                        .flatMap { FilaFailureReason(rawValue: String(cString: $0)) },
-                )))
+                return (identifier, .completed(
+                    FilaFailure(
+                        code: code,
+                        systemError: Int32(truncatingIfNeeded: xpc_dictionary_get_int64(message, FilaWireKey.errno)),
+                        path: path,
+                        reason: xpc_dictionary_get_string(message, FilaWireKey.failureReason)
+                            .flatMap { FilaFailureReason(rawValue: String(cString: $0)) },
+                    ),
+                    skipped: max(0, xpc_dictionary_get_int64(message, FilaWireKey.skippedItems)),
+                ))
             }
             return (identifier, .progress(JobProgress(
                 bytesDone: xpc_dictionary_get_int64(message, FilaWireKey.bytesDone),

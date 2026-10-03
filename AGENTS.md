@@ -105,7 +105,9 @@ between the app and the kernel with nothing in between.
   redirecting root. Their input must already be canonical: a `/var` spelling
   fails there too, and `CanonicalSpellingTests` keeps that in view.
 - **Writes are atomic.** Same-directory temp file, metadata copied across
-  (mode, owner, times, xattrs, BSD flags), then `rename(2)`. A half-written
+  (mode, owner, creation time, ACLs, xattrs, BSD flags), then `rename(2)`. The
+  modification time is the save's own: sync, backup and `make` judge a file
+  by it, and a kept time hid a same-size edit from them. A half-written
   system plist is a boot loop. The known cost is that `rename` swaps the inode,
   so hard links to the old file and processes holding it open keep the old
   content — that is a deliberate trade, taken because a truncating write can

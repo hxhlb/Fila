@@ -233,11 +233,3 @@ func filaTimeSpec(_ seconds: Double) throws -> timespec {
     }
     return timespec(tv_sec: second, tv_nsec: Int((seconds - whole) * 1_000_000_000))
 }
-
-func filaTimeValue(_ seconds: Double) -> timeval {
-    let whole = seconds.rounded(.down)
-    return timeval(
-        tv_sec: __darwin_time_t(whole),
-        tv_usec: __darwin_suseconds_t((seconds - whole) * 1_000_000),
-    )
-}

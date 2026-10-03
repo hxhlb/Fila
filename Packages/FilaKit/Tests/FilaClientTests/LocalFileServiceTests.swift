@@ -108,7 +108,7 @@ struct LocalFileServiceTests {
         )
         var outcome: FilaFailure?
         for await update in link.jobEvents where update.identifier == identifier {
-            if case let .completed(failure) = update.event {
+            if case let .completed(failure, _) = update.event {
                 outcome = failure
                 break
             }

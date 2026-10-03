@@ -22,6 +22,10 @@ public final class ArchiveJob: @unchecked Sendable {
     private let cancellation = NSLock()
     private var cancelled = false
 
+    /// Members an extraction left out, each with a `note` saying why. Read it
+    /// once `run` has returned, on the thread that ran it.
+    public private(set) var skippedItems: Int64 = 0
+
     public init(request: JobRequest, operations: FileOperations) {
         self.request = request
         options = request.archive ?? ArchiveOptions()
@@ -280,7 +284,7 @@ public final class ArchiveJob: @unchecked Sendable {
                 // filesystem the user is also using. A member that is no
                 // longer the one they ticked is not theirs to receive.
                 guard listed == entry.declaredPath else {
-                    note("skipped “\(ArchivePath.displayName(entry.declaredPath))”: the archive changed after it was listed")
+                    skip(entry.declaredPath, "the archive changed after it was listed", note: note)
                     progress.finishedItem(bytes: 0)
                     continue
                 }
@@ -293,6 +297,11 @@ public final class ArchiveJob: @unchecked Sendable {
                 continue
             }
             try place(entry, with: placement, from: reader, progress: progress, note: note)
+        }
+        // Ticked in the listing and not in the archive any more: it shrank in
+        // between, and those members are as missing as a skipped one.
+        for (_, declaredPath) in (wanted ?? [:]).sorted(by: { $0.key < $1.key }) {
+            skip(declaredPath, "the archive changed after it was listed", note: note)
         }
         for entry in links {
             try checkCancelled(ArchivePath.displayName(entry.declaredPath))
@@ -321,9 +330,15 @@ public final class ArchiveJob: @unchecked Sendable {
         } catch let skipped as Placement.Skipped {
             // A member the archive cannot be trusted with is left out and said
             // so; a member the filesystem refused stops the job with its errno.
-            note("skipped “\(ArchivePath.displayName(entry.declaredPath))”: \(skipped.reason)")
+            skip(entry.declaredPath, skipped.reason, note: note)
         }
         progress.finishedItem(bytes: entry.byteCount ?? 0)
+    }
+
+    /// Counted for the outcome, and named with its reason for the log.
+    private func skip(_ declaredPath: String, _ reason: String, note: (String) -> Void) {
+        skippedItems += 1
+        note("skipped “\(ArchivePath.displayName(declaredPath))”: \(reason)")
     }
 
     // MARK: - Progress

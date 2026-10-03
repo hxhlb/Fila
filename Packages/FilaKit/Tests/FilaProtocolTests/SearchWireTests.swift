@@ -51,7 +51,7 @@
         @Test
         func `A search result and a job event are not mistaken for one another`() {
             let result = SearchBatch(matches: [], limits: .depth).encoded(jobIdentifier: 1)
-            let event = JobEvent.completed(FilaFailure(code: .success)).encoded(jobIdentifier: 1)
+            let event = JobEvent.completed(FilaFailure(code: .success), skipped: 0).encoded(jobIdentifier: 1)
 
             #expect(JobEvent.decode(result) == nil)
             #expect(SearchBatch.decode(event) == nil)

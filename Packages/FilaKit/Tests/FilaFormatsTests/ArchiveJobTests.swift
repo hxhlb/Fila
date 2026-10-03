@@ -10,11 +10,12 @@ import Testing
 struct ArchiveJobTests {
     private let operations = FileOperations(bootstrapRoot: "")
 
-    private func run(_ request: JobRequest) -> (outcome: FilaFailure, progress: [JobProgress], notes: [String]) {
+    private func run(_ request: JobRequest) -> (outcome: FilaFailure, progress: [JobProgress], notes: [String], skipped: Int64) {
         var progress: [JobProgress] = []
         var notes: [String] = []
-        let outcome = ArchiveJob(request: request, operations: operations).run { progress.append($0) } note: { notes.append($0) }
-        return (outcome, progress, notes)
+        let job = ArchiveJob(request: request, operations: operations)
+        let outcome = job.run { progress.append($0) } note: { notes.append($0) }
+        return (outcome, progress, notes, job.skippedItems)
     }
 
     @Test
@@ -155,6 +156,7 @@ struct ArchiveJobTests {
             let result = run(JobRequest(kind: .extract, sources: [archive.path], destination: out.path, overwrite: true, archive: ArchiveOptions(members: members)))
             #expect(result.outcome.code == .success)
             #expect(result.notes.count == 1)
+            #expect(result.skipped == 1)
             #expect(result.notes.first?.contains("outside the destination") == true)
             #expect(try String(contentsOf: out.appendingPathComponent("safe.txt"), encoding: .utf8) == "fine")
             #expect(!FileManager.default.fileExists(atPath: out.appendingPathComponent("unwanted.txt").path))
@@ -165,7 +167,29 @@ struct ArchiveJobTests {
             let stale = run(JobRequest(kind: .extract, sources: [archive.path], destination: scratch.appendingPathComponent("stale").path, overwrite: true, archive: ArchiveOptions(members: [ArchiveSelection(index: 2, declaredPath: "safe.txt")])))
             #expect(stale.outcome.code == .success)
             #expect(stale.notes.first?.contains("changed") == true)
+            #expect(stale.skipped == 1)
             #expect(!FileManager.default.fileExists(atPath: scratch.appendingPathComponent("stale/unwanted.txt").path))
+
+            // A position the archive no longer reaches: it shrank after the
+            // listing, and the member it named is counted, not forgotten.
+            let gone = run(JobRequest(kind: .extract, sources: [archive.path], destination: scratch.appendingPathComponent("gone").path, overwrite: true, archive: ArchiveOptions(members: [ArchiveSelection(index: 1, declaredPath: "safe.txt"), ArchiveSelection(index: 9, declaredPath: "vanished.txt")])))
+            #expect(gone.outcome.code == .success)
+            #expect(gone.skipped == 1)
+            #expect(gone.notes == ["skipped “vanished.txt”: the archive changed after it was listed"])
+            #expect(try String(contentsOf: scratch.appendingPathComponent("gone/safe.txt"), encoding: .utf8) == "fine")
+        }
+    }
+
+    @Test
+    func `A clean extraction skips nothing`() throws {
+        try withScratch { scratch in
+            let tree = try makeTree(in: scratch)
+            let archive = scratch.appendingPathComponent("tree.zip")
+            #expect(run(JobRequest(kind: .compress, sources: [tree.path], destination: archive.path, archive: ArchiveOptions())).outcome.code == .success)
+            let extracted = run(JobRequest(kind: .extract, sources: [archive.path], destination: scratch.appendingPathComponent("out").path, archive: ArchiveOptions()))
+            #expect(extracted.outcome.code == .success)
+            #expect(extracted.skipped == 0)
+            #expect(extracted.notes.isEmpty)
         }
     }
 

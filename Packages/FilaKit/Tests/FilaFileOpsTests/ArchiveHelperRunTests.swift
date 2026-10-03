@@ -27,7 +27,7 @@ struct ArchiveHelperRunTests {
     func `The task goes down as JSON, and progress, notes and the outcome come back by line`() throws {
         let progress = try line(.progress(JobProgress(bytesDone: 1, bytesTotal: 2, itemsDone: 3, itemsTotal: 4, currentPath: "x")))
         let note = try line(.note("skipped one"))
-        let completed = try line(.completed(FilaFailure(code: .wrongPassword, path: "y")))
+        let completed = try line(.completed(FilaFailure(code: .wrongPassword, path: "y"), skipped: 2))
         let script = helper("""
         task="$(cat)"
         case "$task" in *'"kind":5'*) ;; *) exit 3 ;; esac
@@ -37,9 +37,11 @@ struct ArchiveHelperRunTests {
         let operations = FileOperations(bootstrapRoot: scratch.root, archiveHelper: script)
         var seen: [JobProgress] = []
         var notes: [String] = []
-        let outcome = FileJob(request: request(), operations: operations).run { seen.append($0) } note: { notes.append($0) }
+        let job = FileJob(request: request(), operations: operations)
+        let outcome = job.run { seen.append($0) } note: { notes.append($0) }
         #expect(outcome.code == .wrongPassword)
         #expect(outcome.path == "y")
+        #expect(job.skippedItems == 2)
         #expect(seen == [JobProgress(bytesDone: 1, bytesTotal: 2, itemsDone: 3, itemsTotal: 4, currentPath: "x")])
         #expect(notes == ["skipped one"])
     }

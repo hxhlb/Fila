@@ -80,7 +80,7 @@ pthread_sigmask(SIG_UNBLOCK, &terminate, nil)
 guard let task = try? JSONDecoder()
     .decode(ArchiveHelperTask.self, from: FileHandle.standardInput.readDataToEndOfFile())
 else {
-    emit(.completed(FilaFailure(code: .invalidRequest, systemError: EINVAL)))
+    emit(.completed(FilaFailure(code: .invalidRequest, systemError: EINVAL), skipped: 0))
     exit(EX_DATAERR)
 }
 
@@ -88,5 +88,5 @@ let job = ArchiveJob(request: task.request, operations: FileOperations(bootstrap
 cancellation.attach(job)
 
 let outcome = job.run(report: { emit(.progress($0)) }, note: { emit(.note($0)) })
-emit(.completed(outcome))
+emit(.completed(outcome, skipped: job.skippedItems))
 exit(outcome.code == .success ? EXIT_SUCCESS : EXIT_FAILURE)

@@ -267,7 +267,7 @@ public final class LocalFileService: LocalFileAccess, @unchecked Sendable {
                     FilaLog.level(for: outcome.code),
                     "job \(identifier) \(outcome.path ?? "-") \(FilaLog.describe(outcome))",
                 )
-                self.streams.yield(JobUpdate(identifier: identifier, event: .completed(outcome)))
+                self.streams.yield(JobUpdate(identifier: identifier, event: .completed(outcome, skipped: work.skippedItems)))
                 // Dropped after the completion is out, so a cancel that arrives
                 // in between still finds the job rather than silently doing
                 // nothing.
@@ -341,6 +341,8 @@ private protocol RunningJob: Sendable {
         note: @escaping (String) -> Void,
     ) -> FilaFailure
     func cancel()
+    /// Read once `run` has returned.
+    var skippedItems: Int64 { get }
 }
 
 extension FileJob: RunningJob {}

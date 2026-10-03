@@ -124,8 +124,8 @@ public enum FilaOperation: UInt64, Sendable, CaseIterable {
     case goodbye = 10
 
     /// Put a temp file the client has finished writing in place of the target:
-    /// carry the original's mode, owner, times, xattrs and BSD flags across,
-    /// then `rename(2)`. This is the only way a client saves a file, and the
+    /// carry the original's mode, owner, creation time, xattrs and BSD flags
+    /// across, then `rename(2)`. This is the only way a client saves a file, and the
     /// reason a power cut cannot leave half a system plist behind.
     case replaceItem = 11
 
@@ -356,6 +356,9 @@ public enum FilaWireKey {
     public static let bytesTotal = "total"
     public static let itemsDone = "idone"
     public static let itemsTotal = "itotal"
+    /// A job's completion: `JobEvent.completed`'s skipped members. Absent
+    /// from an older daemon's message, which reads as none.
+    public static let skippedItems = "nskip"
     public static let installRoot = "root"
     public static let overrideGuard = "override"
     public static let details = "details"

@@ -175,9 +175,10 @@ A read-only trash fails with the real errno and the app offers permanent deletio
 ## Atomic writes
 
 An editor saves by writing a temp file in the same directory, copying the
-original's mode, owner, times, extended attributes and BSD flags onto it, and
-`rename(2)`ing it into place. Power loss cannot leave half a file, which for a
-system plist is the difference between a reboot and a restore.
+original's mode, owner, creation time, ACLs, extended attributes and BSD flags
+onto it, and `rename(2)`ing it into place. Power loss cannot leave half a file,
+which for a system plist is the difference between a reboot and a restore. The
+modification time is the save's own, so sync, backup and `make` see the edit.
 
 The cost is real and is accepted knowingly: `rename` replaces the inode, so
 hard links to the old file keep the old content, and a process holding the file

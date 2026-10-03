@@ -372,17 +372,19 @@ final class RootSplitViewController: UISplitViewController {
 
     /// A new tab asked for at the cap: the folder opens in the current tab
     /// instead, and the card says so.
-    private func openInCurrentTabAtCap(_ path: String) {
+    private func openInCurrentTabAtCap(_ path: String, select: String? = nil) {
         FeedbackAlert.show(
             String(localized: "Too Many Tabs"),
             message: String(localized: "This folder opened in the current tab. Close a tab to open a new one."),
         )
         confirmLeavingContent { [weak self] in
             guard let self else { return }
-            if let browser = content.navigation?.topViewController as? FileBrowserViewController {
+            // A file to select is a jump to its folder, as `fila://reveal` is:
+            // the browser's own descent has nothing to select with.
+            if select == nil, let browser = content.navigation?.topViewController as? FileBrowserViewController {
                 browser.open(directory: path)
             } else {
-                content.showRoot(path, select: nil)
+                content.showRoot(path, select: select)
             }
         }
     }
@@ -391,11 +393,11 @@ final class RootSplitViewController: UISplitViewController {
     /// decides *whether* a tab is made — it is capped and it deduplicates,
     /// because a link is an unauthenticated entry point. At the cap the link
     /// opens in the current tab, as Open in New Tab does, so it navigates
-    /// either way.
-    func openFromLink(_ path: String) {
+    /// either way. `select` names the file the link pointed at, in `path`.
+    func openFromLink(_ path: String, select: String? = nil) {
         content.captureCurrentTab()
-        guard tabs.openFromLink(path) else {
-            openInCurrentTabAtCap(path)
+        guard tabs.openFromLink(path, select: select) else {
+            openInCurrentTabAtCap(path, select: select)
             if !isCollapsed {
                 show(.secondary)
             }

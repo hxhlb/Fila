@@ -104,11 +104,14 @@ struct ArchiveHelperRunTests {
         let finished = DispatchSemaphore(value: 0)
         var outcome = FilaFailure(code: .success)
         let started = Date()
-        DispatchQueue.global().async {
+        // On a queue of its own, as the daemon's `archiveQueue` is: a dispatch
+        // worker with a worker's mask, which is what is under test, and one
+        // that a saturated global pool cannot hold back.
+        DispatchQueue(label: "wiki.qaq.fila.tests.archive-job").async {
             outcome = job.run { _ in }
             finished.signal()
         }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { job.cancel() }
+        Self.cancel(job, after: 0.3)
         #expect(finished.wait(timeout: .now() + 10) == .success)
         #expect(outcome.code == .cancelled)
         #expect(Date().timeIntervalSince(started) < 4)
@@ -118,10 +121,21 @@ struct ArchiveHelperRunTests {
     func `Cancel hangs the helper up and the job reports cancelled`() {
         let operations = FileOperations(bootstrapRoot: scratch.root, archiveHelper: helper("cat >/dev/null; exec sleep 30"))
         let job = FileJob(request: request(), operations: operations)
-        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { job.cancel() }
+        Self.cancel(job, after: 0.3)
         let started = Date()
         let outcome = job.run { _ in }
         #expect(outcome.code == .cancelled)
         #expect(Date().timeIntervalSince(started) < 10)
+    }
+
+    /// A cancel on a thread of its own rather than a dispatch timer. With the
+    /// whole suite running in parallel, a loaded machine can leave no global
+    /// worker free for half a minute, and a cancel that never fires reads as a
+    /// helper that ignored it.
+    private static func cancel(_ job: FileJob, after seconds: Double) {
+        Thread {
+            usleep(useconds_t(seconds * 1_000_000))
+            job.cancel()
+        }.start()
     }
 }

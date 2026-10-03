@@ -331,10 +331,15 @@ struct SMBClientHardeningTests {
     }
 
     /// What the vendor's awaits are like: a wait that does not end early
-    /// for a cancelled task.
+    /// for a cancelled task. Timed on a thread of its own: with the whole run
+    /// in parallel, a global dispatch timer on a loaded machine fired seconds
+    /// late, after the grace it was meant to land inside.
     private static func uncancellableWait(_ seconds: Double) async {
         await withCheckedContinuation { continuation in
-            DispatchQueue.global().asyncAfter(deadline: .now() + seconds) { continuation.resume() }
+            Thread {
+                usleep(useconds_t(seconds * 1_000_000))
+                continuation.resume()
+            }.start()
         }
     }
 

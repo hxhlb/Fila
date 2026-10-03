@@ -158,10 +158,10 @@ one side is written. A file or a link is cloned whole with `clonefile(2)`,
 instantly. A folder is cloned file by file through `copyfile(3)` with
 `COPYFILE_CLONE`, because a folder cloned whole keeps only its own ACL and
 drops every ACL inside it (and, measured as an ordinary user, every setuid
-bit). The copy callback restores the setuid and setgid bits that
-`COPYFILE_CLONE` leaves off. A folder holding a named
-pipe, a socket or a device is still cloned whole, since copyfile can copy
-none of them.
+bit). Cloning clears setuid and setgid, so they are restored on a cloned
+file that still matches its source. A folder holding a named pipe, a socket
+or a device is still cloned whole, since copyfile can copy none of them, and
+it cannot be copied to another volume.
 
 Using libSystem here rather than a hand-written walk is not laziness for its
 own sake: `copyfile` preserves extended attributes, ACLs, resource forks, BSD

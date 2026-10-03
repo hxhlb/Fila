@@ -490,11 +490,15 @@ public final class FileJob: @unchecked Sendable {
             | COPYFILE_CLONE
         let result = copyfile(source, target, state, copyfile_flags_t(flags))
         // What the callback saw comes first: it stopped the walk deliberately,
-        // so the errno left behind is ECANCELED and says nothing useful.
+        // and the errno a quit leaves behind says nothing useful — from a
+        // recursion stage it is 0, which would read as a failure with no reason.
         if let failure = tally.failure {
             throw failure
         }
         guard result == 0 else {
+            if isCancelled {
+                throw FilaFailure(code: .cancelled, path: source)
+            }
             let code = Darwin.errno
             throw FilaFailure(errno: code, path: filaFailsWriting(code) ? target : source)
         }

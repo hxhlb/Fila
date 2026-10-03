@@ -353,17 +353,23 @@ struct StressHuntArchiveTests {
                 try writer.addData("DUP.TXT", Data("third".utf8))
                 try writer.finish()
             }
+            // `DUP.TXT` collides with `dup.txt` only where the volume folds
+            // case, as APFS does by default. A scratch directory on a
+            // case-sensitive volume holds both names, and that is correct too.
+            let caseSensitive = pathconf(scratch.path, _PC_CASE_SENSITIVE)
+            try #require(caseSensitive >= 0, "pathconf: \(String(cString: strerror(errno)))")
+            let foldsCase = caseSensitive == 0
             let kept = scratch.appendingPathComponent("kept")
             let first = extract(archive, into: kept)
             #expect(first.outcome.code == .success)
-            #expect(first.notes.count == 2, "\(first.notes)")
+            #expect(first.notes.count == (foldsCase ? 2 : 1), "\(first.notes)")
             #expect(try String(contentsOf: kept.appendingPathComponent("dup.txt"), encoding: .utf8) == "first")
 
             let replaced = scratch.appendingPathComponent("replaced")
             let second = extract(archive, into: replaced, overwrite: true)
             #expect(second.outcome.code == .success)
             let names = try FileManager.default.contentsOfDirectory(atPath: replaced.path)
-            #expect(names.count == 1, "\(names)")
+            #expect(names.count == (foldsCase ? 1 : 2), "\(names)")
             #expect(!names.contains { $0.hasPrefix(".fila-") })
         }
     }

@@ -21,7 +21,10 @@ final class FileFlagsEditorViewController: TabContentTableViewController {
             image: UIImage(systemName: "checkmark"),
             primaryAction: UIAction { [weak self] _ in
                 guard let self else { return }
-                apply(flags)
+                // `self.` on both: inside the initializer the bare names are
+                // its parameters, so `flags` would be the word the editor
+                // opened with and every toggle would apply as no change.
+                self.apply(self.flags)
                 navigationController?.popViewController(animated: true)
             },
         )]

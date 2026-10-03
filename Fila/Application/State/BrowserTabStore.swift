@@ -248,10 +248,16 @@ final class BrowserTabStore {
     /// path is not open yet: the caller then opens it in the current tab.
     ///
     /// `selection` is the row a file link names in `path`. A new tab opens
-    /// with it selected; a tab already there is switched to as it stands.
+    /// with it selected, and so does a tab already there: the link named the
+    /// file, and landing in its folder without it reads as the link failing.
+    /// A tab whose page is already built takes the selection from the shell,
+    /// when that page is on top.
     func openFromLink(_ path: String, selection: String? = nil) -> Bool {
-        if let existing = tabs.first(where: { $0.path == path }) {
-            select(existing.id)
+        if let index = tabs.firstIndex(where: { $0.path == path }) {
+            if let selection {
+                loaded.tabs[index].selection = selection
+            }
+            select(loaded.tabs[index].id)
             return true
         }
         return open(path, selection: selection) != nil

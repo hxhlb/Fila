@@ -134,8 +134,8 @@ func filaFailsWriting(_ code: Int32) -> Bool {
 let filaCopyProgress: copyfile_callback_t = { what, stage, state, source, destination, context in
     guard let context else { return COPYFILE_CONTINUE }
     let tally = Unmanaged<JobTally>.fromOpaque(context).takeUnretainedValue()
-    // COPYFILE_QUIT makes copyfile return -1 with ECANCELED, which is exactly
-    // how a job that was asked to stop reports itself.
+    // A quit for cancellation records nothing: `FileJob.copyTree` reads the
+    // job's own state, because copyfile leaves no errno that says why.
     if tally.job.isCancelled {
         return COPYFILE_QUIT
     }

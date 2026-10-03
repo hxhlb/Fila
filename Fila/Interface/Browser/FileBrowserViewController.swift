@@ -628,6 +628,19 @@ final class FileBrowserViewController: BackendListViewController<FileNode>, TabC
 
     // MARK: - Snapshot
 
+    /// Selects `name` on a page that already exists, the way `init(select:)`
+    /// does on a new one: now if its row is listed, else when the listing it
+    /// asks for brings it — the file may be newer than this page's rows.
+    /// Never in edit mode, where a selected row joins the next Delete or Move.
+    func reveal(_ name: String) {
+        guard !isEditing else { return }
+        pendingSelection = name
+        if isViewLoaded {
+            revealPendingSelectionIfArrived()
+        }
+        reload()
+    }
+
     /// Scroll a revealed entry into view and select it, once the page carrying
     /// it has landed. Hidden entries are a real case here: a link can name a
     /// dotfile the browser is currently filtering out, and revealing it means

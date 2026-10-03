@@ -23,6 +23,12 @@ final class JobTally {
     /// error stages stop the walk and leave the reason here.
     private(set) var failure: FilaFailure?
 
+    /// Set while a copy walks a tree onto the volume it came from, where each
+    /// file is a clone that costs nothing. Only bytes actually written are
+    /// checked against the reserve then; a nearly full device can still copy
+    /// a folder for free, as the whole-folder clone always let it.
+    var clonesInPlace = false
+
     private let report: (JobProgress) -> Void
 
     private var completedBytes: Int64 = 0
@@ -90,8 +96,9 @@ final class JobTally {
         }
     }
 
-    /// A failed pass the job is about to redo another way, whose reason no
-    /// longer describes the job — and would stop its next copy before it began.
+    /// A failed pass the job is about to redo another way. Its reason no
+    /// longer describes the job, and left here it would fail the job's next
+    /// tree copy once that copy had finished.
     func forgetFailure() {
         failure = nil
     }
@@ -150,7 +157,7 @@ let filaCopyProgress: copyfile_callback_t = { what, stage, state, source, destin
                copyfile_state_get(state, UInt32(COPYFILE_STATE_DST_FD), &descriptor) == 0, descriptor >= 0
             {
                 try StorageSpace.requireAvailable(descriptor: descriptor)
-            } else if let destination {
+            } else if !tally.clonesInPlace, let destination {
                 try StorageSpace.requireAvailable(at: FilaPath.directory(of: String(cString: destination)))
             }
         } catch let failure as FilaFailure {
@@ -189,30 +196,59 @@ let filaCopyProgress: copyfile_callback_t = { what, stage, state, source, destin
     return COPYFILE_CONTINUE
 }
 
-/// A file `COPYFILE_CLONE` cloned has the source's mode without setuid and
-/// setgid, and `COPYFILE_STATE_PRESERVE_SUID` cannot change that. A copy is
-/// meant to be the same file — a copied bootstrap whose `sudo` lost its bit
-/// is a broken one — so the clone gets the source's bits back, as a full copy
-/// across volumes keeps them. By path, as copyfile itself works, and never
-/// through a link. A flag that forbids the change is lifted around it.
+/// A file copyfile cloned, given back the setuid and setgid bits cloning
+/// leaves off. Its folder is reopened with `O_NOFOLLOW_ANY` first, because
+/// copyfile names it by path and a root process must not chmod whatever that
+/// path reaches by now.
 private func filaRestoreSetID(state: copyfile_state_t?, source: String, clone: String) throws {
     var wasCloned = false
     guard copyfile_state_get(state, UInt32(COPYFILE_STATE_WAS_CLONED), &wasCloned) == 0, wasCloned else { return }
-    let setID = mode_t(S_ISUID | S_ISGID)
     var original = stat()
-    guard lstat(source, &original) == 0, original.st_mode & S_IFMT == S_IFREG,
-          original.st_mode & setID != 0 else { return }
+    guard lstat(source, &original) == 0 else { return }
+    try filaWithDirectory(FilaPath.directory(of: clone)) { directory in
+        try filaRestoreSetID(of: FilaPath.name(of: clone), in: directory, path: clone, source: original)
+    }
+}
+
+/// A clone has the source's mode without setuid and setgid — clonefile(2)
+/// clears them, and `COPYFILE_STATE_PRESERVE_SUID` cannot change that. A copy
+/// is meant to be the same file, and a copied bootstrap whose `sudo` lost its
+/// bit is a broken one, so the clone gets the source's two bits back, as a
+/// full copy keeps them.
+///
+/// Only onto the clone of that source: one name, the same owner, size, time
+/// and permission bits, so a source changed or a node swapped in since the
+/// clone gets nothing. Only the two bits are added. A flag that forbids the
+/// change is lifted around it; one that cannot be lifted, a system flag
+/// without the privilege, leaves the clone as cloning left it rather than
+/// failing a copy whose bytes are all there.
+func filaRestoreSetID(of name: String, in directory: Int32, path: String, source: stat) throws {
+    let setID = mode_t(S_ISUID | S_ISGID)
+    guard source.st_mode & S_IFMT == S_IFREG, source.st_mode & setID != 0 else { return }
     var copied = stat()
-    try filaCheck(clone) { lstat(clone, &copied) }
-    guard copied.st_mode & S_IFMT == S_IFREG, copied.st_mode & setID != original.st_mode & setID else { return }
+    try filaCheck(path) { fstatat(directory, name, &copied, AT_SYMLINK_NOFOLLOW) }
+    guard copied.st_mode & S_IFMT == S_IFREG, copied.st_nlink == 1,
+          copied.st_uid == source.st_uid, copied.st_gid == source.st_gid,
+          copied.st_size == source.st_size,
+          copied.st_mtimespec.tv_sec == source.st_mtimespec.tv_sec,
+          copied.st_mtimespec.tv_nsec == source.st_mtimespec.tv_nsec,
+          copied.st_mode & 0o1777 == source.st_mode & 0o1777,
+          copied.st_mode & setID != source.st_mode & setID
+    else { return }
     let immovable = UInt32(UF_IMMUTABLE | SF_IMMUTABLE | UF_APPEND | SF_APPEND)
     let flags = copied.st_flags
     if flags & immovable != 0 {
-        try filaCheck(clone) { lchflags(clone, flags & ~immovable) }
+        do {
+            try filaSetFlags(flags & ~immovable, of: name, in: directory, path: path)
+        } catch let failure as FilaFailure where failure.systemError == EPERM {
+            return
+        }
     }
-    try filaCheck(clone) { fchmodat(AT_FDCWD, clone, original.st_mode & 0o7777, AT_SYMLINK_NOFOLLOW) }
+    try filaCheck(path) {
+        fchmodat(directory, name, (copied.st_mode & 0o7777) | (source.st_mode & setID), AT_SYMLINK_NOFOLLOW)
+    }
     if flags & immovable != 0 {
-        try filaCheck(clone) { lchflags(clone, flags) }
+        try filaSetFlags(flags, of: name, in: directory, path: path)
     }
 }
 

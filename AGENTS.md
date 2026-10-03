@@ -47,10 +47,12 @@ between the app and the kernel with nothing in between.
   `COPYFILE_CLONE`. A folder cloned whole keeps only its own ACL, and every
   ACL inside it is lost (and, measured as an ordinary user, every setuid
   bit); a copy is meant to be the same files, so a folder takes a moment
-  per item instead. A file `COPYFILE_CLONE` cloned has no setuid or setgid
-  bit, and the copy callback puts them back. copyfile can neither
-  clone nor copy a named pipe, a socket or a device, so only a folder
-  holding one is still cloned whole, with that loss.
+  per item instead. A clone has no setuid or setgid bit, so both bits are
+  put back on a cloned file that matches its source (`filaRestoreSetID`,
+  through a pinned folder). copyfile can neither clone nor copy a named
+  pipe, a socket or a device, so a folder holding one is still cloned
+  whole, with that loss, and cannot be copied to another volume at all.
+  Neither kind of clone keeps hard links: each name becomes its own file.
 - **No install prefix is ever written in Swift.** roothide relocates rootful
   paths into a randomized bootstrap directory, rootless installs under
   `/var/jb`, and a rootful layout has no prefix. `InstallRoot` derives all

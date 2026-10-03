@@ -156,6 +156,54 @@ struct RandomTreeTests {
         #expect(metadata(of: scratch.path("dst/tree/tool")).map { $0.st_mode & 0o7777 } == 0o4755)
     }
 
+    /// A locked setuid file inside a folder, and one copied on its own: the
+    /// bits come back either way, and the lock is put back after them.
+    @Test
+    func `a locked setuid file keeps its bit and its lock, in a folder or alone`() throws {
+        let scratch = HuntScratch("setuid-locked")
+        scratch.directory("tree")
+        let locked = scratch.file("tree/locked-tool", "#!/bin/sh\n")
+        #expect(chmod(locked, 0o4755) == 0)
+        #expect(chflags(locked, UInt32(UF_IMMUTABLE)) == 0)
+        let alone = scratch.file("alone-tool", "#!/bin/sh\n")
+        #expect(chmod(alone, 0o2755) == 0)
+        defer { _ = chflags(locked, 0); _ = chflags(scratch.path("dst/tree/locked-tool"), 0) }
+        scratch.directory("dst")
+        let job = JobRequest(kind: .copy, sources: [scratch.path("tree"), alone], destination: scratch.path("dst"))
+        #expect(huntRunJob(job, FileOperations(bootstrapRoot: "")).code == .success)
+        let copied = try #require(metadata(of: scratch.path("dst/tree/locked-tool")))
+        #expect(copied.st_mode & 0o7777 == 0o4755)
+        #expect(copied.st_flags & UInt32(UF_IMMUTABLE) != 0)
+        #expect(metadata(of: scratch.path("dst/alone-tool")).map { $0.st_mode & 0o7777 } == 0o2755)
+    }
+
+    /// A folder that needs the whole-folder fallback, then two that do not,
+    /// in one job: the failed pass is forgotten, and the folders after it
+    /// are still copied exactly.
+    @Test
+    func `a fallback folder does not stop the folders after it`() throws {
+        let scratch = HuntScratch("fallback-then")
+        scratch.directory("piped")
+        scratch.file("piped/file", "x")
+        #expect(mkfifo(scratch.path("piped/pipe"), 0o644) == 0)
+        scratch.directory("plain/inner")
+        let guarded = scratch.file("plain/inner/guarded.txt", "acl")
+        huntSetACL(guarded)
+        let acl = try #require(huntACL(guarded))
+        scratch.directory("tools")
+        let tool = scratch.file("tools/tool", "#!/bin/sh\n")
+        #expect(chmod(tool, 0o4755) == 0)
+        scratch.directory("dst")
+        let job = JobRequest(kind: .copy, sources: [scratch.path("piped"), scratch.path("plain"), scratch.path("tools")], destination: scratch.path("dst"))
+        let outcome = huntRunJob(job, FileOperations(bootstrapRoot: ""))
+        #expect(outcome.code == .success, "\(outcome)")
+        var pipe = stat()
+        #expect(lstat(scratch.path("dst/piped/pipe"), &pipe) == 0 && pipe.st_mode & S_IFMT == S_IFIFO)
+        #expect(huntACL(scratch.path("dst/plain/inner/guarded.txt")) == acl)
+        #expect(metadata(of: scratch.path("dst/tools/tool")).map { $0.st_mode & 0o7777 } == 0o4755)
+        #expect(huntLeftoverTemporaries(in: scratch.path("dst")).isEmpty)
+    }
+
     /// copyfile can neither clone nor copy a named pipe, so a folder holding
     /// one is cloned whole, as every folder was before: the copy is complete,
     /// and its children's ACLs are the known loss.

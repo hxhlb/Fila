@@ -347,16 +347,30 @@ public final class FileJob: @unchecked Sendable {
         let into = try filaOpenDirectory(directory)
         defer { close(into) }
         do {
-            // A clone is instant on APFS; copyfile handles other filesystems
-            // and trees while keeping metadata and memory use bounded. A plain
-            // clone drops the source's ACLs, so CLONE_ACL asks for them — for a
-            // directory the kernel honours it on the root alone. A kernel older
-            // than that flag refuses it with EINVAL, and gets the clone it
-            // always made. The source is read by path: reading is not what the
-            // guard decides, and its folder may allow search but not listing.
-            var cloned = clonefileat(AT_FDCWD, source, into, temporaryName, UInt32(CLONE_NOFOLLOW | CLONE_ACL)) == 0
-            if !cloned, Darwin.errno == EINVAL {
-                cloned = clonefileat(AT_FDCWD, source, into, temporaryName, UInt32(CLONE_NOFOLLOW)) == 0
+            // A file or a link is cloned whole: instant on APFS, no space. A
+            // plain clone drops the source's ACLs, so CLONE_ACL asks for them;
+            // a kernel older than that flag refuses it with EINVAL, and gets
+            // the clone it always made. A folder is not: cloned whole, the
+            // kernel keeps CLONE_ACL for its root alone, and every ACL inside
+            // would be lost (and, measured as an ordinary user, every setuid
+            // bit). So a folder goes to copyfile, which clones file by file
+            // where it can — still no space, now a moment per item. The
+            // source is read by path: reading is not what the guard decides,
+            // and its folder may allow search but not listing.
+            func cloneWhole() -> Bool {
+                if clonefileat(AT_FDCWD, source, into, temporaryName, UInt32(CLONE_NOFOLLOW | CLONE_ACL)) == 0 {
+                    return true
+                }
+                return Darwin.errno == EINVAL
+                    && clonefileat(AT_FDCWD, source, into, temporaryName, UInt32(CLONE_NOFOLLOW)) == 0
+            }
+            var sourceMetadata = stat()
+            let sourceKnown = lstat(source, &sourceMetadata) == 0
+            let isFolder = sourceKnown && sourceMetadata.st_mode & S_IFMT == S_IFDIR
+            var cloned = !isFolder && cloneWhole()
+            if cloned, sourceKnown {
+                // clonefile(2) clears setuid and setgid on a file too.
+                try filaRestoreSetID(of: temporaryName, in: into, path: temporary, source: sourceMetadata)
             }
             if !cloned {
                 // copyfile(3) has no descriptor form for a tree, so this walks
@@ -364,7 +378,22 @@ public final class FileJob: @unchecked Sendable {
                 // held folder, the copy lands somewhere else, the lookup below
                 // finds nothing under the temporary's name, and nothing is
                 // published.
-                try copyTree(source, to: temporary, tally: tally)
+                do {
+                    try copyTree(source, to: temporary, tally: tally)
+                } catch let failure as FilaFailure where isFolder && failure.systemError == ENOTSUP {
+                    // A named pipe, a socket or a device inside: copyfile can
+                    // neither clone nor copy one, and a whole-folder clone
+                    // can. That folder gives up its inner ACLs and setuid bits
+                    // so that those nodes are copied at all. Across volumes
+                    // the clone fails too, and such a folder cannot be copied.
+                    if isCancelled {
+                        throw FilaFailure(code: .cancelled, path: source)
+                    }
+                    try operations.discardTemporary(temporary)
+                    cloned = cloneWhole()
+                    guard cloned else { throw failure }
+                    tally.forgetFailure()
+                }
             }
             if isCancelled {
                 throw FilaFailure(code: .cancelled, path: source)
@@ -438,6 +467,13 @@ public final class FileJob: @unchecked Sendable {
             unsafeBitCast(filaCopyProgress, to: UnsafeRawPointer.self),
         )
         copyfile_state_set(state, UInt32(COPYFILE_STATE_STATUS_CTX), Unmanaged.passUnretained(tally).toOpaque())
+        // Same volume: every file will be a clone, so only bytes copyfile
+        // actually writes, where a clone falls back, meet the space reserve.
+        var from = stat()
+        var onto = stat()
+        tally.clonesInPlace = lstat(source, &from) == 0 && stat(FilaPath.directory(of: target), &onto) == 0
+            && from.st_dev == onto.st_dev
+        defer { tally.clonesInPlace = false }
 
         // COPYFILE_ALL is what carries xattrs, ACLs, resource forks and BSD
         // flags across. COPYFILE_NOFOLLOW is the rule the whole project keeps:
@@ -447,7 +483,11 @@ public final class FileJob: @unchecked Sendable {
         // in both cases. COPYFILE_DATA_SPARSE keeps holes as holes — without it
         // a 20 GB disk image holding 200 MB is written out in full — and falls
         // back to a plain copy where either side cannot hold one.
+        // COPYFILE_CLONE clones each file where both ends share a volume and
+        // copies it where they do not; the progress callback gives a clone
+        // back the setuid and setgid bits cloning leaves off.
         let flags = COPYFILE_ALL | COPYFILE_RECURSIVE | COPYFILE_NOFOLLOW | COPYFILE_EXCL | COPYFILE_DATA_SPARSE
+            | COPYFILE_CLONE
         let result = copyfile(source, target, state, copyfile_flags_t(flags))
         // What the callback saw comes first: it stopped the walk deliberately,
         // so the errno left behind is ECANCELED and says nothing useful.

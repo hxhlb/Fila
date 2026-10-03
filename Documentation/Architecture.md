@@ -153,8 +153,15 @@ Copy, cross-volume move and delete are jobs, not replies: they take minutes,
 need progress, and must be cancellable. They run inside the daemon on
 `copyfile(3)` and `removefile(3)`, whose state callbacks provide progress and a
 `QUIT` return for cancellation, and whose memory is bounded regardless of tree
-size. A same-volume copy attempts `clonefile(2)` first — on APFS it completes
-instantly and consumes no space until one side is written.
+size. A same-volume copy clones, and on APFS a clone consumes no space until
+one side is written. A file or a link is cloned whole with `clonefile(2)`,
+instantly. A folder is cloned file by file through `copyfile(3)` with
+`COPYFILE_CLONE`, because a folder cloned whole keeps only its own ACL and
+drops every ACL inside it (and, measured as an ordinary user, every setuid
+bit). Cloning clears setuid and setgid, so they are restored on a cloned
+file that still matches its source. A folder holding a named pipe, a socket
+or a device is still cloned whole, since copyfile can copy none of them, and
+it cannot be copied to another volume.
 
 Using libSystem here rather than a hand-written walk is not laziness for its
 own sake: `copyfile` preserves extended attributes, ACLs, resource forks, BSD

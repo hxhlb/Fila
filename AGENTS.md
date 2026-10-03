@@ -42,8 +42,17 @@ between the app and the kernel with nothing in between.
   cancellation, their memory is flat, and they preserve xattrs, ACLs, resource
   forks, BSD flags and sparseness. Every walk written by hand loses some of
   those silently, and the loss shows up as a user's data quietly changing.
-  A same-volume copy tries `clonefile(2)` first: on APFS it is instant and
-  costs no space.
+  A same-volume copy clones, which on APFS costs no space: a file or link
+  with `clonefile(2)` at once, a folder file by file through `copyfile(3)`'s
+  `COPYFILE_CLONE`. A folder cloned whole keeps only its own ACL, and every
+  ACL inside it is lost (and, measured as an ordinary user, every setuid
+  bit); a copy is meant to be the same files, so a folder takes a moment
+  per item instead. A clone has no setuid or setgid bit, so both bits are
+  put back on a cloned file that matches its source (`filaRestoreSetID`,
+  through a pinned folder). copyfile can neither clone nor copy a named
+  pipe, a socket or a device, so a folder holding one is still cloned
+  whole, with that loss, and cannot be copied to another volume at all.
+  Neither kind of clone keeps hard links: each name becomes its own file.
 - **No install prefix is ever written in Swift.** roothide relocates rootful
   paths into a randomized bootstrap directory, rootless installs under
   `/var/jb`, and a rootful layout has no prefix. `InstallRoot` derives all

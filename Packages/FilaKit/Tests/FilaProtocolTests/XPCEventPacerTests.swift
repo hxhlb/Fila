@@ -69,6 +69,20 @@
         }
     }
 
+    /// `sendInOrder` blocks its caller, as it blocks a search's walk, so it
+    /// gets a thread of its own. A detached task would hold one of the few
+    /// cooperative threads every other test in the run is waiting on.
+    private func onThread(_ body: @escaping @Sendable () -> Void) -> Task<Void, Never> {
+        Task {
+            await withCheckedContinuation { continuation in
+                Thread {
+                    body()
+                    continuation.resume()
+                }.start()
+            }
+        }
+    }
+
     @Suite("Unsolicited messages to a peer that stopped reading", .serialized)
     struct XPCEventPacerTests {
         @Test
@@ -108,7 +122,7 @@
             let pacer = peer.pacer()
             pacer.sendLatest(message(1))
 
-            let delivered = Task.detached {
+            let delivered = onThread {
                 pacer.sendInOrder(message(2)) { false }
             }
             try? await Task.sleep(nanoseconds: 300_000_000)
@@ -127,7 +141,7 @@
             pacer.sendLatest(message(1))
             let cancelled = Flag()
 
-            let delivered = Task.detached {
+            let delivered = onThread {
                 pacer.sendInOrder(message(2)) { cancelled.isSet }
             }
             try? await Task.sleep(nanoseconds: 200_000_000)
@@ -151,7 +165,8 @@
             pacer.sendLatest(message(1000))
             let looks = Looks()
             let cancelled = Flag()
-            let waiting = Task.detached {
+            let started = Date()
+            let waiting = onThread {
                 pacer.sendInOrder(message(2000)) {
                     looks.count()
                     return cancelled.isSet
@@ -160,9 +175,13 @@
             try? await Task.sleep(nanoseconds: 300_000_000)
             cancelled.set()
             await waiting.value
-            // A few looks, one per interval. The 500 signals left over from the
-            // progress would otherwise answer the wait at once, 500 times.
-            #expect(looks.value < 20)
+            // One look per interval for as long as it waited, measured: a
+            // loaded machine stretches the sleep above. The 500 signals left
+            // over from the progress would otherwise answer the wait at once,
+            // 500 times.
+            let intervals = Date().timeIntervalSince(started) / 0.1
+            #expect(Double(looks.value) <= intervals + 3, "\(looks.value) looks in \(intervals) intervals")
+            #expect(looks.value < 500)
         }
 
         @Test

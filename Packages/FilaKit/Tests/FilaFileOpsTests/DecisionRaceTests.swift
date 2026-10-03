@@ -15,8 +15,7 @@ struct DecisionRaceTests {
         var snapshots: [String: [String: HuntEntry]] = [:]
         for index in 0 ..< 8 {
             let source = scratch.path("item-\(index)")
-            // No ACLs: a directory clone keeps only its root's (see RandomTreeTests).
-            huntBuildTree(at: source, seed: UInt64(100 + index), nodes: 25, options: HuntTreeOptions(acl: false))
+            huntBuildTree(at: source, seed: UInt64(100 + index), nodes: 25, options: HuntTreeOptions())
             sources.append(source)
             snapshots[source] = huntSnapshot(source)
         }

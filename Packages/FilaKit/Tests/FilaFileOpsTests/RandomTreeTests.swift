@@ -14,10 +14,10 @@ struct RandomTreeTests {
     func `copy reproduces the tree byte for byte and touches nothing else`(seed: UInt64) {
         let scratch = HuntScratch("copy")
         let sentinel = scratch.file("sentinel", "outside")
-        // No ACLs: a directory clone carries CLONE_ACL to its root only, and
-        // the children's ACLs are a known loss — `a cloned file keeps its ACL`
-        // covers what the flag does reach.
-        huntBuildTree(at: scratch.path("src"), seed: seed, nodes: 60, options: HuntTreeOptions(immutable: true, fifo: true, sparse: true, acl: false))
+        // No named pipes: a folder holding one is cloned whole, which keeps
+        // only the folder's own ACL — `a folder holding a named pipe still
+        // copies` covers that case.
+        huntBuildTree(at: scratch.path("src"), seed: seed, nodes: 60, options: HuntTreeOptions(immutable: true, fifo: false, sparse: true, acl: true))
         scratch.directory("dst")
         let before = huntSnapshot(scratch.path("src"))
         let outcome = huntRunJob(JobRequest(kind: .copy, sources: [scratch.path("src")], destination: scratch.path("dst")), FileOperations(bootstrapRoot: ""))
@@ -134,6 +134,43 @@ struct RandomTreeTests {
         scratch.directory("dst")
         #expect(huntRunJob(JobRequest(kind: .copy, sources: [source], destination: scratch.path("dst")), FileOperations(bootstrapRoot: "")).code == .success)
         #expect(huntACL(scratch.path("dst/guarded.txt")) == before)
+    }
+
+    /// Cloned whole, a folder kept its own ACL and lost every one inside it,
+    /// and every setuid bit with them. Cloned file by file it keeps both.
+    @Test
+    func `a copied folder keeps the ACL and setuid bit of everything inside it`() throws {
+        let scratch = HuntScratch("acl-tree")
+        scratch.directory("tree/inner")
+        let file = scratch.file("tree/inner/guarded.txt", "acl")
+        let tool = scratch.file("tree/tool", "#!/bin/sh\n")
+        #expect(chmod(tool, 0o4755) == 0)
+        huntSetACL(scratch.path("tree/inner"))
+        huntSetACL(file)
+        let folderACL = try #require(huntACL(scratch.path("tree/inner")))
+        let fileACL = try #require(huntACL(file))
+        scratch.directory("dst")
+        #expect(huntRunJob(JobRequest(kind: .copy, sources: [scratch.path("tree")], destination: scratch.path("dst")), FileOperations(bootstrapRoot: "")).code == .success)
+        #expect(huntACL(scratch.path("dst/tree/inner")) == folderACL)
+        #expect(huntACL(scratch.path("dst/tree/inner/guarded.txt")) == fileACL)
+        #expect(metadata(of: scratch.path("dst/tree/tool")).map { $0.st_mode & 0o7777 } == 0o4755)
+    }
+
+    /// copyfile can neither clone nor copy a named pipe, so a folder holding
+    /// one is cloned whole, as every folder was before: the copy is complete,
+    /// and its children's ACLs are the known loss.
+    @Test(arguments: [1, 2, 3] as [UInt64])
+    func `a folder holding a named pipe still copies`(seed: UInt64) {
+        let scratch = HuntScratch("fifo-tree")
+        huntBuildTree(at: scratch.path("src"), seed: seed, nodes: 40, options: HuntTreeOptions(immutable: true, fifo: true, sparse: true, acl: false))
+        #expect(mkfifo(scratch.path("src/pipe"), 0o644) == 0)
+        scratch.directory("dst")
+        let before = huntSnapshot(scratch.path("src"))
+        let outcome = huntRunJob(JobRequest(kind: .copy, sources: [scratch.path("src")], destination: scratch.path("dst")), FileOperations(bootstrapRoot: ""))
+        #expect(outcome.code == .success, "seed \(seed): \(outcome)")
+        let diffCopy = huntDiff(before, huntSnapshot(scratch.path("dst/src")))
+        #expect(diffCopy.isEmpty, "seed \(seed) copy differs: \(diffCopy.prefix(5))")
+        #expect(huntLeftoverTemporaries(in: scratch.path("dst")).isEmpty)
     }
 
     @Test

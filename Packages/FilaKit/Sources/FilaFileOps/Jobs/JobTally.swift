@@ -90,6 +90,12 @@ final class JobTally {
         }
     }
 
+    /// A failed pass the job is about to redo another way, whose reason no
+    /// longer describes the job — and would stop its next copy before it began.
+    func forgetFailure() {
+        failure = nil
+    }
+
     /// Copying a large file fires the callback thousands of times a second and
     /// deleting a large tree fires it once per node. Every one of those would
     /// otherwise be an XPC message to a bar that cannot show more than a few a
@@ -165,11 +171,49 @@ let filaCopyProgress: copyfile_callback_t = { what, stage, state, source, destin
             tally.fileProgress(Int64(copied))
         }
     case (COPYFILE_RECURSE_FILE, COPYFILE_FINISH), (COPYFILE_RECURSE_DIR, COPYFILE_FINISH):
+        if what == COPYFILE_RECURSE_FILE, let source, let destination {
+            do {
+                try filaRestoreSetID(state: state, source: String(cString: source), clone: String(cString: destination))
+            } catch let failure as FilaFailure {
+                tally.recordFailure(failure)
+                return COPYFILE_QUIT
+            } catch {
+                tally.recordFailure(FilaFailure(errno: EIO))
+                return COPYFILE_QUIT
+            }
+        }
         tally.finishedItem()
     default:
         break
     }
     return COPYFILE_CONTINUE
+}
+
+/// A file `COPYFILE_CLONE` cloned has the source's mode without setuid and
+/// setgid, and `COPYFILE_STATE_PRESERVE_SUID` cannot change that. A copy is
+/// meant to be the same file — a copied bootstrap whose `sudo` lost its bit
+/// is a broken one — so the clone gets the source's bits back, as a full copy
+/// across volumes keeps them. By path, as copyfile itself works, and never
+/// through a link. A flag that forbids the change is lifted around it.
+private func filaRestoreSetID(state: copyfile_state_t?, source: String, clone: String) throws {
+    var wasCloned = false
+    guard copyfile_state_get(state, UInt32(COPYFILE_STATE_WAS_CLONED), &wasCloned) == 0, wasCloned else { return }
+    let setID = mode_t(S_ISUID | S_ISGID)
+    var original = stat()
+    guard lstat(source, &original) == 0, original.st_mode & S_IFMT == S_IFREG,
+          original.st_mode & setID != 0 else { return }
+    var copied = stat()
+    try filaCheck(clone) { lstat(clone, &copied) }
+    guard copied.st_mode & S_IFMT == S_IFREG, copied.st_mode & setID != original.st_mode & setID else { return }
+    let immovable = UInt32(UF_IMMUTABLE | SF_IMMUTABLE | UF_APPEND | SF_APPEND)
+    let flags = copied.st_flags
+    if flags & immovable != 0 {
+        try filaCheck(clone) { lchflags(clone, flags & ~immovable) }
+    }
+    try filaCheck(clone) { fchmodat(AT_FDCWD, clone, original.st_mode & 0o7777, AT_SYMLINK_NOFOLLOW) }
+    if flags & immovable != 0 {
+        try filaCheck(clone) { lchflags(clone, flags) }
+    }
 }
 
 /// `removefile(3)`'s confirm callback. It fires once per node *before* that

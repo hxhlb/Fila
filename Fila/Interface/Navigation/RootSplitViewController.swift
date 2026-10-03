@@ -404,6 +404,15 @@ final class RootSplitViewController: UISplitViewController {
             return
         }
         content.showCurrentTab()
+        // A tab already open at `path` keeps its built page, made before this
+        // link; a new one has the name already, and asking twice is harmless.
+        // A viewer or editor over the folder stays where it is: a link does
+        // not close the person's document to show a row under it.
+        if let select, let browser = content.navigation?.topViewController as? FileBrowserViewController,
+           browser.directory == path
+        {
+            browser.reveal(select)
+        }
         if !isCollapsed {
             show(.secondary)
         }

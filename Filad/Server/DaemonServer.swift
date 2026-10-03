@@ -293,7 +293,12 @@ final class DaemonServer: @unchecked Sendable {
             // It has no progress and no cancellation for the same reason.
             // Making it a job is the upgrade, and it needs wire vocabulary
             // `FilaJobKind` does not have yet.
-            try operations.setAttributes(change, at: string(FilaWireKey.path, in: message))
+            let path = try string(FilaWireKey.path, in: message)
+            let outcome = try operations.setAttributes(change, at: path)
+            if outcome.unchangedSharedFiles > 0 {
+                FilaLog.warning("\(outcome.unchangedSharedFiles) hard-linked file(s) beneath \(path) left unchanged")
+                xpc_dictionary_set_uint64(reply, FilaWireKey.unchangedSharedFiles, UInt64(outcome.unchangedSharedFiles))
+            }
 
         case .replaceItem:
             try operations.replaceItem(
@@ -334,6 +339,9 @@ final class DaemonServer: @unchecked Sendable {
             // The level travels with the poll rather than in an operation of
             // its own, so turning Verbose on in the app is one round trip and
             // takes effect on the next line the daemon writes.
+            // `sequence` is 0 when the cursor was read from a daemon before
+            // this one, so a viewer left open across a restart sees this
+            // process's lines from its first.
             let request = FilaLog.Record.decodeRequest(message)
             if let level = request.level, level != FilaLog.minimumLevel {
                 FilaLog.minimumLevel = level
@@ -476,8 +484,10 @@ final class DaemonServer: @unchecked Sendable {
 
         // Events are unsolicited messages on the peer's own connection, not
         // replies: the job outlives the request that started it, and the screen
-        // that started it may be gone by the time it ends.
-        let connection = peer.connection
+        // that started it may be gone by the time it ends. Paced, because a
+        // peer that stopped reading — an app iOS suspended — would otherwise
+        // have every one of them held in this process's 6 MB.
+        let events = XPCEventPacer(connection: peer.connection)
         let key = peer.key
         let queue: DispatchQueue = switch request.kind {
         case .search: searchQueue
@@ -486,13 +496,16 @@ final class DaemonServer: @unchecked Sendable {
         }
         queue.async { [weak self] in
             let outcome = job.run { progress in
-                xpc_connection_send_message(connection, JobEvent.progress(progress).encoded(jobIdentifier: identifier))
+                // Superseded rather than queued while the last one is still
+                // on its way: only the newest progress is worth delivering.
+                events.sendLatest(JobEvent.progress(progress).encoded(jobIdentifier: identifier))
             } matches: { batch in
                 // A search's answers, on their own message: `jobEvent` says how
                 // far along the job is, this says what it found. Both are
                 // unsolicited and both are capped — a batch is at most
-                // `FilaProtocol.searchBatchMatchCount` matches.
-                xpc_connection_send_message(connection, batch.encoded(jobIdentifier: identifier))
+                // `FilaProtocol.searchBatchMatchCount` matches — and a batch
+                // cannot be dropped, so the walk waits for the last one to go.
+                events.sendInOrder(batch.encoded(jobIdentifier: identifier)) { job.isCancelled }
             } note: { line in
                 // What the helper left out and why. The only record of it.
                 FilaLog.warning("job \(identifier) \(line)")
@@ -504,7 +517,7 @@ final class DaemonServer: @unchecked Sendable {
                 FilaLog.level(for: outcome.code),
                 Self.describe("job \(identifier)", path: outcome.path ?? "-", failure: outcome),
             )
-            xpc_connection_send_message(connection, JobEvent.completed(outcome).encoded(jobIdentifier: identifier))
+            events.finish(JobEvent.completed(outcome).encoded(jobIdentifier: identifier))
             self?.controlQueue.async { self?.jobFinished(identifier, key: key) }
         }
         return identifier

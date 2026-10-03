@@ -40,6 +40,10 @@ final class OperationCenter: ObservableObject {
 
     /// Completions that arrived before their row existed. See `startJob`.
     private var earlyCompletions: [UInt64: FilaFailure] = [:]
+    /// `startJob` calls waiting on the daemon's reply. A completion is held
+    /// only while one is: with none outstanding nothing will ever claim it,
+    /// and an identifier the restarted daemon hands out again would.
+    private var startsInFlight = 0
 
     /// How many finished rows the list keeps. It is a receipt, not a history.
     private static let finishedLimit = 20
@@ -73,6 +77,9 @@ final class OperationCenter: ObservableObject {
             guard operation.isRunning, case .job = operation.control else { return false }
             return true
         }.map(\.id)
+        // `filad` counts identifiers from 1 again on its next run; a held
+        // completion from this connection would finish that run's job.
+        earlyCompletions.removeAll()
         guard !lost.isEmpty else { return }
         // Not an error the user caused, and the only explanation for rows that
         // are about to end at 40%: the connection went and took the jobs with it.
@@ -158,6 +165,17 @@ final class OperationCenter: ObservableObject {
             // job, so the folder listing them is only right afterwards.
             directories.append(destination)
             directories.append((destination as NSString).deletingLastPathComponent)
+        }
+        startsInFlight += 1
+        // Runs after the held completion below is claimed, or after a start
+        // that failed: either way the last outstanding start takes every
+        // completion still held with it — a reply lost to a dropped
+        // connection leaves one nothing will ever claim.
+        defer {
+            startsInFlight -= 1
+            if startsInFlight == 0 {
+                earlyCompletions.removeAll()
+            }
         }
         let identifier = try await session.perform { try await $0.startJob(request) }
         // `filad` counts job identifiers from the start of each run, so one can
@@ -437,6 +455,9 @@ final class OperationCenter: ObservableObject {
     }
 
     private func holdEarly(_ identifier: UInt64, _ failure: FilaFailure) {
+        // A late completion for a row the lost link already ended, with no
+        // start waiting to claim it, belongs to nothing.
+        guard startsInFlight > 0 else { return }
         // Bounded: every identifier here came from a `startJob` about to claim
         // it. The one that never does is a reply lost to a dropped connection,
         // and dropping the oldest is the whole recovery it needs.

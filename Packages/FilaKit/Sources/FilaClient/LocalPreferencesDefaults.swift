@@ -64,10 +64,17 @@ public final class LocalPreferencesDefaults: DefaultStorage {
         files.showsHidden = defaults.object(forKey: "showsHidden") as? Bool ?? false
         files.layout = defaults.string(forKey: "layout").flatMap(BrowserLayout.init) ?? .list
         let layouts = defaults.dictionary(forKey: "folderLayouts") as? [String: String] ?? [:]
-        files.folderLayouts = Dictionary(uniqueKeysWithValues: layouts.compactMap { absolute, raw in
-            guard let path = Self.path(absolute), let layout = BrowserLayout(rawValue: raw) else { return nil }
-            return (path, layout)
-        })
+        // An older build kept whatever spelling it was handed, so two keys —
+        // `/a/b` and `/a/b/` — can name one folder. The first in sorted
+        // order wins, which is the plain spelling, and the same one on every
+        // launch; a duplicate must never be a trap at startup.
+        files.folderLayouts = Dictionary(
+            layouts.sorted { $0.key < $1.key }.compactMap { absolute, raw in
+                guard let path = Self.path(absolute), let layout = BrowserLayout(rawValue: raw) else { return nil }
+                return (path, layout)
+            },
+            uniquingKeysWith: { first, _ in first },
+        )
         let order = (defaults.array(forKey: "presetOrder") as? [Int] ?? []).compactMap(LocalPreset.init(rawValue:))
         let hidden = Set((defaults.array(forKey: "hiddenPresets") as? [Int] ?? []).compactMap(LocalPreset.init(rawValue:)))
         return LocalFilePreferences(

@@ -9,6 +9,9 @@ public enum TerminalSessionFixture {
             .deletingLastPathComponent().appendingPathComponent("Sources/CTerminalSession")
         let output = root + "/usr/libexec/filad"
         try! FileManager.default.createDirectory(atPath: root + "/usr/libexec", withIntermediateDirectories: true)
+        // Built once per test process and needed until its last session, so
+        // the directory goes when the process does.
+        atexit { try? FileManager.default.removeItem(atPath: TerminalSessionFixture.root) }
         let compiler = Process()
         compiler.executableURL = URL(fileURLWithPath: "/usr/bin/clang")
         compiler.arguments = ["-DFILA_TERMINAL_SESSION_STANDALONE", "-I", source.appendingPathComponent("include").path,

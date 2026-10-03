@@ -8,7 +8,7 @@ extension FileActions {
         guard !paths.isEmpty else { return }
         // Inside the trash every delete is final, whichever control asked:
         // trashing a trashed item would only move it within the trash.
-        if AppPreferences.shared.usesTrash, !permanently, !paths.allSatisfy(Self.isInTrash) {
+        if Self.movesToTrash, !permanently, !paths.allSatisfy(Self.isInTrash) {
             startDelete(paths, useTrash: true)
         } else {
             guard let presenter = activePresenter else { return }
@@ -86,13 +86,27 @@ extension FileActions {
 
     private func reportDeleteFailure(_ failure: FilaFailure, paths: [String], useTrash: Bool) {
         guard failure.code != .success, failure.code != .cancelled else { return }
-        guard useTrash, failure.systemError == EROFS,
+        guard useTrash, Self.trashIsUnwritable(failure),
               let presenter = activePresenter else { return report(failure) }
         PermanentDeleteConfirmation.present(
             from: presenter,
             title: String(localized: "Cannot Move to Trash"),
             message: String(localized: "The trash cannot be written to. Permanently delete the selected items still at their original paths? Items already in the trash will stay there. This cannot be undone."),
         ) { self.deleteRemainingItems(at: paths) }
+    }
+
+    /// A read-only volume, or a trash folder this process may not create —
+    /// `mobile` cannot make one at a volume root. A refusal anywhere else is
+    /// not the trash's: the same item would refuse a permanent delete too.
+    private static func trashIsUnwritable(_ failure: FilaFailure) -> Bool {
+        switch failure.systemError {
+        case EROFS:
+            true
+        case EACCES, EPERM:
+            failure.path.map { ($0 as NSString).lastPathComponent } == FilaTrash.directoryName
+        default:
+            false
+        }
     }
 
     /// A new, explicitly confirmed deletion of the items currently at these

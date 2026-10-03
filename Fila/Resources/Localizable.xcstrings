@@ -3448,6 +3448,88 @@
         }
       }
     },
+    "A name cannot be empty. Enter a name for the item." : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لا يمكن أن يكون الاسم فارغًا. أدخل اسمًا للعنصر."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Name darf nicht leer sein. Gib einen Namen für das Objekt ein."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A name cannot be empty. Enter a name for the item."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El nombre no puede estar vacío. Introduce un nombre para el elemento."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le nom ne peut pas être vide. Saisissez un nom pour l’élément."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il nome non può essere vuoto. Inserisci un nome per l’elemento."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名前を空にすることはできません。項目の名前を入力してください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이름은 비워 둘 수 없습니다. 항목의 이름을 입력하십시오."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O nome não pode ficar vazio. Digite um nome para o item."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Имя не может быть пустым. Введите имя объекта."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tên không được để trống. Hãy nhập tên cho mục này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名称不能为空。请输入项目的名称。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "名稱不可為空。請輸入項目的名稱。"
+          }
+        }
+      }
+    },
     "A symbolic link in this path cannot be followed. Choose the item's real location." : {
       "localizations" : {
         "ar" : {
@@ -16324,6 +16406,89 @@
         }
       }
     },
+    "Enter a number from 0 to 4294967294." : {
+      "comment" : "Explains the valid range of an owner or group ID. 4294967295 means “leave unchanged” to chown, so it cannot be set.",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "أدخل رقمًا من 0 إلى 4294967294."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gib eine Zahl von 0 bis 4294967294 ein."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter a number from 0 to 4294967294."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Introduce un número del 0 al 4294967294."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Saisissez un nombre compris entre 0 et 4294967294."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Inserisci un numero da 0 a 4294967294."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "0から4294967294までの数値を入力してください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "0에서 4294967294 사이의 숫자를 입력하십시오."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Digite um número de 0 a 4294967294."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Введите число от 0 до 4294967294."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nhập một số từ 0 đến 4294967294."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "请输入 0 到 4294967294 之间的数字。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "請輸入 0 到 4294967294 之間的數字。"
+          }
+        }
+      }
+    },
     "Enter a numeric ID. 0 is root, 501 is mobile." : {
       "localizations" : {
         "ar" : {
@@ -19866,6 +20031,88 @@
         }
       }
     },
+    "File Changed on Disk" : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تغيّر الملف على القرص"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Datei auf dem Datenträger geändert"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File Changed on Disk"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El archivo cambió en el disco"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fichier modifié sur le disque"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "File modificato su disco"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ディスク上のファイルが変更されました"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "디스크의 파일이 변경됨"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arquivo Alterado no Disco"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Файл изменён на диске"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tệp đã thay đổi trên đĩa"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "磁盘上的文件已更改"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "磁碟上的檔案已更動"
+          }
+        }
+      }
+    },
     "File name" : {
       "localizations" : {
         "ar" : {
@@ -20439,6 +20686,89 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "檔案大小"
+          }
+        }
+      }
+    },
+    "Files with more than one name were left unchanged: %lld. Their other names may be outside this folder." : {
+      "comment" : "Message after a recursive change in Properties skipped hard-linked files; the number is how many.",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تُركت الملفات التي لها أكثر من اسم دون تغيير: %lld. قد تكون أسماؤها الأخرى خارج هذا المجلد."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dateien mit mehr als einem Namen wurden nicht geändert: %lld. Ihre anderen Namen liegen möglicherweise außerhalb dieses Ordners."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Files with more than one name were left unchanged: %lld. Their other names may be outside this folder."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los archivos con más de un nombre no se cambiaron: %lld. Sus otros nombres pueden estar fuera de esta carpeta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les fichiers ayant plus d’un nom n’ont pas été modifiés : %lld. Leurs autres noms peuvent se trouver hors de ce dossier."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I file con più di un nome non sono stati modificati: %lld. Gli altri nomi potrebbero trovarsi fuori da questa cartella."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "複数の名前を持つファイルは変更されませんでした: %lld。ほかの名前がこのフォルダの外にある可能性があります。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이름이 둘 이상인 파일은 변경되지 않았습니다: %lld. 다른 이름이 이 폴더 밖에 있을 수 있습니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Arquivos com mais de um nome não foram alterados: %lld. Os outros nomes podem estar fora desta pasta."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Файлы с несколькими именами не изменены: %lld. Другие их имена могут находиться вне этой папки."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Các tệp có nhiều hơn một tên không được thay đổi: %lld. Các tên khác của chúng có thể nằm ngoài thư mục này."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有多个名称的文件未更改：%lld 个。它们的其他名称可能在此文件夹之外。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有多個名稱的檔案未更改：%lld 個。它們的其他名稱可能在此資料夾之外。"
           }
         }
       }
@@ -25238,6 +25568,89 @@
         }
       }
     },
+    "Invalid ID" : {
+      "comment" : "Title of the notice shown when an owner or group ID typed in Properties is not a number chown can set.",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "معرّف غير صالح"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ungültige ID"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid ID"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID no válido"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID non valide"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID non valido"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無効なID"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "잘못된 ID"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID Inválido"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Недопустимый ID"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID không hợp lệ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID 无效"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ID 無效"
+          }
+        }
+      }
+    },
     "Invalid Name" : {
       "localizations" : {
         "ar" : {
@@ -25398,6 +25811,89 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "無效偏移"
+          }
+        }
+      }
+    },
+    "Invalid Port" : {
+      "comment" : "Title of the notice shown when the File Sharing port typed in Settings is outside 1024–65535.",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "منفذ غير صالح"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ungültiger Port"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invalid Port"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Puerto no válido"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Port non valide"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Porta non valida"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無効なポート"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "잘못된 포트"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Porta Inválida"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Недопустимый порт"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cổng không hợp lệ"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "端口无效"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "連接埠無效"
           }
         }
       }
@@ -36373,6 +36869,88 @@
         }
       }
     },
+    "Part of this path is a file, not a folder." : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "جزء من هذا المسار ملف وليس مجلدًا."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ein Teil dieses Pfads ist eine Datei, kein Ordner."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Part of this path is a file, not a folder."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una parte de esta ruta es un archivo, no una carpeta."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Une partie de ce chemin est un fichier et non un dossier."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Una parte di questo percorso è un file, non una cartella."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このパスの一部がフォルダではなくファイルです。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 경로의 일부가 폴더가 아닌 파일입니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parte deste caminho é um arquivo, não uma pasta."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Часть этого пути указывает на файл, а не на папку."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Một phần của đường dẫn này là tệp chứ không phải thư mục."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此路径中的某一部分是文件，而不是文件夹。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此路徑中的某一部分是檔案，而不是檔案夾。"
+          }
+        }
+      }
+    },
     "Password" : {
       "comment" : "Credential field in File Sharing. The server will not start without one — there is no anonymous mode.",
       "localizations" : {
@@ -44374,6 +44952,89 @@
         }
       }
     },
+    "Showing the first %@ of %@. A line in this file is too long to edit. Open it as Hex to see the rest." : {
+      "comment" : "Notice above a text file cut inside a very long line. The first size is what is shown, the second the file's full size. Hex is the name of Fila's hex viewer.",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "يتم عرض أول %1$@ من أصل %2$@. يحتوي هذا الملف على سطر أطول من أن يُحرَّر. افتحه بصيغة Hex لرؤية الباقي."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Es werden die ersten %1$@ von %2$@ angezeigt. Eine Zeile in dieser Datei ist zu lang zum Bearbeiten. Öffne sie als „Hex“, um den Rest zu sehen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Showing the first %1$@ of %2$@. A line in this file is too long to edit. Open it as Hex to see the rest."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se muestran los primeros %1$@ de %2$@. Una línea de este archivo es demasiado larga para editarla. Ábrelo como Hex para ver el resto."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Affichage des %1$@ premiers sur %2$@. Une ligne de ce fichier est trop longue pour être modifiée. Ouvrez-le en Hex pour voir le reste."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vengono mostrati i primi %1$@ di %2$@. Una riga di questo file è troppo lunga per essere modificata. Aprilo come Hex per vedere il resto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "先頭の%1$@を表示しています（全%2$@）。このファイルには長すぎて編集できない行があります。残りを見るにはHexとして開いてください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@만 표시하고 있습니다(전체 %2$@). 이 파일에는 너무 길어서 편집할 수 없는 줄이 있습니다. 나머지를 보려면 Hex로 여십시오."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Exibindo os primeiros %1$@ de %2$@. Uma linha deste arquivo é longa demais para editar. Abra-o como Hex para ver o restante."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Показаны первые %1$@ из %2$@. Строка в этом файле слишком длинная для редактирования. Откройте его как Hex, чтобы увидеть остальное."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Đang hiển thị %1$@ đầu tiên trong tổng số %2$@. Tệp này có một dòng quá dài để chỉnh sửa. Hãy mở dạng Hex để xem phần còn lại."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅显示前 %1$@，文件共 %2$@。此文件中有一行太长，无法编辑。以十六进制打开可查看其余部分。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "僅顯示前 %1$@，檔案共 %2$@。此檔案中有一行太長，無法編輯。請以「十六進位」打開來查看其餘內容。"
+          }
+        }
+      }
+    },
     "Showing the first %@ of %@. This file is too large to edit. Open it as Hex to see the rest." : {
       "comment" : "Notice above a truncated text file. The first size is what is shown, the second the file's full size. Hex is the name of Fila's hex viewer.",
       "localizations" : {
@@ -45280,6 +45941,89 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "你輸入的部分字元無法以此檔案的編碼儲存。請移除這些字元後再試一次。"
+          }
+        }
+      }
+    },
+    "Some Files Were Not Changed" : {
+      "comment" : "Title of the notice after a recursive change in Properties skipped hard-linked files.",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لم يتم تغيير بعض الملفات"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Einige Dateien wurden nicht geändert"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Some Files Were Not Changed"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Algunos archivos no se cambiaron"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Certains fichiers n’ont pas été modifiés"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alcuni file non sono stati modificati"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "一部のファイルは変更されませんでした"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "일부 파일이 변경되지 않음"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alguns arquivos não foram alterados"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Некоторые файлы не изменены"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Một số tệp không được thay đổi"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分文件未更改"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "部分檔案未更改"
           }
         }
       }
@@ -49321,6 +50065,89 @@
         }
       }
     },
+    "There is no trash here: deleting removes items permanently, after you confirm." : {
+      "comment" : "Settings footer under Use Trash when the sandboxed backend has no trash to move items into.",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لا توجد سلة مهملات هنا: يؤدي الحذف إلى إزالة العناصر نهائيًا بعد تأكيدك."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hier gibt es keinen Papierkorb: Löschen entfernt Objekte endgültig, nachdem du es bestätigt hast."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "There is no trash here: deleting removes items permanently, after you confirm."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aquí no hay papelera: al eliminar, los elementos se eliminan permanentemente, después de que lo confirmes."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il n’y a pas de corbeille ici : la suppression efface les éléments définitivement, après votre confirmation."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Qui non c’è un Cestino: gli elementi vengono eliminati definitivamente, dopo la tua conferma."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ここにはゴミ箱がありません。削除すると、確認後に項目は完全に削除されます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "여기에는 휴지통이 없습니다. 삭제하면 확인 후 항목이 완전히 삭제됩니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Não há Lixeira aqui: os itens são apagados definitivamente, depois que você confirmar."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Здесь нет Корзины: удаление стирает объекты безвозвратно после вашего подтверждения."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ở đây không có thùng rác: thao tác xóa sẽ xóa vĩnh viễn các mục sau khi bạn xác nhận."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此处没有废纸篓：确认后，项目将被永久删除。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此處沒有垃圾桶：確認後，項目將被永久刪除。"
+          }
+        }
+      }
+    },
     "There is not enough free space to finish this operation safely. Free up space or choose another destination." : {
       "localizations" : {
         "ar" : {
@@ -49732,6 +50559,88 @@
         }
       }
     },
+    "This file cannot be edited as text without changing bytes you did not edit. It is shown read-only." : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لا يمكن تحرير هذا الملف كنص دون تغيير بايتات لم تحررها. يُعرض للقراءة فقط."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Datei kann nicht als Text bearbeitet werden, ohne Bytes zu ändern, die du nicht bearbeitet hast. Sie wird schreibgeschützt angezeigt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This file cannot be edited as text without changing bytes you did not edit. It is shown read-only."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este archivo no se puede editar como texto sin cambiar bytes que no editaste. Se muestra en modo de solo lectura."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce fichier ne peut pas être modifié comme du texte sans changer des octets que vous n’avez pas modifiés. Il est affiché en lecture seule."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questo file non può essere modificato come testo senza cambiare byte che non hai modificato. Viene mostrato in sola lettura."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このファイルは、編集していないバイトを変えずにテキストとして編集することはできません。読み出し専用で表示します。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 파일은 편집하지 않은 바이트를 바꾸지 않고는 텍스트로 편집할 수 없습니다. 읽기 전용으로 표시합니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este arquivo não pode ser editado como texto sem alterar bytes que você não editou. Ele é exibido somente para leitura."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Этот файл нельзя редактировать как текст, не изменив байты, которые вы не редактировали. Он показан только для чтения."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Không thể chỉnh sửa tệp này dưới dạng văn bản mà không thay đổi các byte bạn không chỉnh sửa. Tệp được hiển thị ở chế độ chỉ đọc."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此文件无法作为文本编辑而不改动你未编辑的字节。将以只读方式显示。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此檔案無法作為文字編輯而不更動你未編輯的位元組。將以唯讀方式顯示。"
+          }
+        }
+      }
+    },
     "This file could not be opened. Open it as Hex to see its contents." : {
       "localizations" : {
         "ar" : {
@@ -50057,6 +50966,88 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此檔案太大（%1$@）。檢視器最多支援 %2$@ 的檔案。"
+          }
+        }
+      }
+    },
+    "This file was changed after you opened it. Saving replaces those changes with yours." : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تغيّر هذا الملف بعد أن فتحته. يؤدي الحفظ إلى استبدال تلك التغييرات بتغييراتك."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Datei wurde geändert, nachdem du sie geöffnet hast. Beim Sichern werden diese Änderungen durch deine ersetzt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This file was changed after you opened it. Saving replaces those changes with yours."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este archivo cambió después de que lo abrieras. Al guardar, esos cambios se sustituyen por los tuyos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce fichier a été modifié après son ouverture. L’enregistrement remplace ces modifications par les vôtres."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questo file è stato modificato dopo che lo hai aperto. Salvando, quelle modifiche vengono sostituite dalle tue."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このファイルは開いた後に変更されました。保存すると、それらの変更はあなたの変更で置き換えられます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 파일은 연 후에 변경되었습니다. 저장하면 그 변경 사항이 내 변경 사항으로 대치됩니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este arquivo foi alterado depois que você o abriu. Salvar substitui essas alterações pelas suas."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Этот файл изменился после того, как вы его открыли. При сохранении эти изменения будут заменены вашими."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tệp này đã thay đổi sau khi bạn mở. Lưu sẽ thay thế các thay đổi đó bằng thay đổi của bạn."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此文件在你打开后已被更改。保存会用你的更改替换那些更改。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此檔案在你打開後已被更動。儲存會以你的更動取代那些更動。"
           }
         }
       }
@@ -51206,6 +52197,88 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "此屬性列表包含只能檢視、無法編輯的值。"
+          }
+        }
+      }
+    },
+    "This property list is in the old OpenStep format, which can be read but not written. It is shown read-only." : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "قائمة الخصائص هذه بتنسيق OpenStep القديم، الذي يمكن قراءته لكن لا يمكن كتابته. تُعرض للقراءة فقط."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Diese Property List liegt im alten OpenStep-Format vor, das gelesen, aber nicht geschrieben werden kann. Sie wird schreibgeschützt angezeigt."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This property list is in the old OpenStep format, which can be read but not written. It is shown read-only."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta lista de propiedades está en el antiguo formato OpenStep, que se puede leer pero no escribir. Se muestra en modo de solo lectura."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette liste de propriétés est dans l’ancien format OpenStep, qui peut être lu mais pas écrit. Elle est affichée en lecture seule."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questa property list è nel vecchio formato OpenStep, che può essere letto ma non scritto. Viene mostrata in sola lettura."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このプロパティリストは古いOpenStep形式で、読み込みはできても書き込みはできません。読み出し専用で表示します。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 속성 목록은 읽을 수는 있지만 쓸 수 없는 이전 OpenStep 형식입니다. 읽기 전용으로 표시합니다."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta property list está no antigo formato OpenStep, que pode ser lido, mas não gravado. Ela é exibida somente para leitura."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Этот список свойств в старом формате OpenStep, который можно прочитать, но нельзя записать. Он показан только для чтения."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Property list này ở định dạng OpenStep cũ, có thể đọc nhưng không thể ghi. Tệp được hiển thị ở chế độ chỉ đọc."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此属性列表采用旧的 OpenStep 格式，只能读取、无法写入。将以只读方式显示。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此屬性列表採用舊的 OpenStep 格式，只能讀取、無法寫入。將以唯讀方式顯示。"
           }
         }
       }
@@ -53838,6 +54911,89 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "未知"
+          }
+        }
+      }
+    },
+    "Unreadable" : {
+      "comment" : "The value of a binary's Entitlements row when its signature carries entitlements Fila cannot read.",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "تتعذر قراءتها"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nicht lesbar"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unreadable"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ilegibles"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Illisibles"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Non leggibili"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "読み取れません"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "읽을 수 없음"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ilegíveis"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Не удалось прочитать"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Không đọc được"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法读取"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "無法讀取"
           }
         }
       }

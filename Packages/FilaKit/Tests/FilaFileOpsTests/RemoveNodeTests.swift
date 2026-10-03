@@ -78,6 +78,24 @@ struct RemoveNodeTests {
         #expect(exists(scratch.path("realdir")))
     }
 
+    /// Write and search without read: enough for `unlink`, `rename` and
+    /// `chmod` inside it, and so enough for the in-process backend, which runs
+    /// as the user rather than as root. Root reads every directory anyway.
+    @Test(.enabled(if: getuid() != 0, "root reads every directory"))
+    func `A folder that may be searched but not listed still takes changes inside it`() throws {
+        scratch.directory("dropbox")
+        let file = scratch.file("dropbox/one.txt")
+        scratch.file("dropbox/two.txt")
+        #expect(chmod(scratch.path("dropbox"), 0o300) == 0)
+        defer { chmod(scratch.path("dropbox"), 0o755) }
+
+        try operations.setAttributes(AttributeChange(mode: 0o600), at: scratch.path("dropbox/two.txt"))
+        try operations.rename(scratch.path("dropbox/two.txt"), to: scratch.path("dropbox/three.txt"))
+        try operations.removeNode(at: file, directory: false)
+        #expect(!exists(file))
+        #expect(permissions(of: scratch.path("dropbox/three.txt")) == 0o600)
+    }
+
     @Test
     func `The guard refuses a protected node`() {
         let failure = #expect(throws: FilaFailure.self) {

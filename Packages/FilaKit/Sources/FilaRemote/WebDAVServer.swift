@@ -101,7 +101,21 @@ public final class WebDAVServer: @unchecked Sendable {
     /// How many connections are served at once. Finder opens a handful and a
     /// browser two; the cap is here so that whoever else can reach the port
     /// cannot make the app hold a thousand descriptors.
+    ///
+    /// A slot is taken at accept, before anyone has signed in, so a full house
+    /// does not simply turn the next connection away: that would let any
+    /// device on the network hold every slot with silent sockets, no password
+    /// needed. The oldest connection that has not signed in gives its slot up
+    /// instead, and only a server full of signed-in connections refuses.
     static let connectionLimit = 32
+
+    /// One accepted connection. `order` is the accept count, so the oldest
+    /// can be found without a clock.
+    private struct Slot {
+        let channel: Channel
+        let order: UInt64
+        var signedIn = false
+    }
 
     /// The log is a window, not a history — it is read on a settings screen and
     /// nowhere else.
@@ -114,7 +128,8 @@ public final class WebDAVServer: @unchecked Sendable {
 
     private var listener: NWListener?
     private var listenerChannel: Channel?
-    private var connections: [ObjectIdentifier: Channel] = [:]
+    private var connections: [ObjectIdentifier: Slot] = [:]
+    private var acceptedCount: UInt64 = 0
     private var generation = UUID()
     private var storedStatus: Status = .stopped
     private var storedLog: [LogEntry] = []
@@ -134,8 +149,8 @@ public final class WebDAVServer: @unchecked Sendable {
 
     deinit {
         listenerChannel?.close(promise: nil)
-        for channel in connections.values {
-            channel.close(promise: nil)
+        for slot in connections.values {
+            slot.channel.close(promise: nil)
         }
     }
 
@@ -264,7 +279,7 @@ public final class WebDAVServer: @unchecked Sendable {
         lock.lock()
         generation = UUID()
         let channel = listenerChannel
-        let open = Array(connections.values)
+        let open = connections.values.map(\.channel)
         listener = nil
         listenerChannel = nil
         connections.removeAll()
@@ -287,7 +302,7 @@ public final class WebDAVServer: @unchecked Sendable {
         generation = UUID()
         listener = nil
         listenerChannel = nil
-        let open = Array(connections.values)
+        let open = connections.values.map(\.channel)
         connections.removeAll()
         storedStatus = .failed("Sharing stopped unexpectedly. Start sharing again.")
         lock.unlock()
@@ -308,11 +323,22 @@ public final class WebDAVServer: @unchecked Sendable {
 
     private func accept(_ channel: Channel, run: UUID, configuration: Configuration, nonces: DigestNonces) throws {
         lock.lock()
-        let accepted = generation == run && listener != nil && connections.count < Self.connectionLimit
+        var accepted = generation == run && listener != nil
+        var evicted: Channel?
+        if accepted, connections.count >= Self.connectionLimit {
+            if let oldest = connections.filter({ !$0.value.signedIn }).min(by: { $0.value.order < $1.value.order }) {
+                connections[oldest.key] = nil
+                evicted = oldest.value.channel
+            } else {
+                accepted = false
+            }
+        }
         if accepted {
-            connections[ObjectIdentifier(channel)] = channel
+            acceptedCount &+= 1
+            connections[ObjectIdentifier(channel)] = Slot(channel: channel, order: acceptedCount)
         }
         lock.unlock()
+        evicted?.close(promise: nil)
         guard accepted else { throw HTTPFailure.closed }
         channel.closeFuture.whenComplete { [weak self] _ in self?.forget(channel) }
 
@@ -336,6 +362,7 @@ public final class WebDAVServer: @unchecked Sendable {
             configuration: configuration,
             nonces: nonces,
             log: { [weak self] line in self?.note("\(peer) \(line)") },
+            signedIn: { [weak self] in self?.signedIn(channel) },
         )
         let ioTimeout = ioTimeout
         Task {
@@ -348,6 +375,14 @@ public final class WebDAVServer: @unchecked Sendable {
     private func forget(_ channel: Channel) {
         lock.lock()
         connections.removeValue(forKey: ObjectIdentifier(channel))
+        lock.unlock()
+    }
+
+    /// The connection's request carried credentials this server accepts, so
+    /// its slot is no longer one a newcomer can take.
+    private func signedIn(_ channel: Channel) {
+        lock.lock()
+        connections[ObjectIdentifier(channel)]?.signedIn = true
         lock.unlock()
     }
 

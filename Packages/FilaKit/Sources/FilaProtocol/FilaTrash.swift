@@ -21,4 +21,26 @@ public enum FilaTrash {
     public static func directory(under base: String) -> String {
         base == "/" ? "/" + directoryName : base + "/" + directoryName
     }
+
+    /// What an item is called in the trash once `suffix` others got there
+    /// first under the same name: `name-1`, `name-2`, and so on.
+    ///
+    /// A name is one path component, 255 bytes at most (`NAME_MAX`), and a
+    /// name already that long has no room for `-1`. The stem is shortened on a
+    /// scalar boundary instead, so the second long-named item still finds a
+    /// free name rather than failing with ENAMETOOLONG. Put Back reads the
+    /// origin attribute, never this name, so shortening it loses nothing.
+    public static func itemName(_ name: String, suffix: Int) -> String {
+        guard suffix > 0 else { return name }
+        let tail = "-\(suffix)"
+        let budget = 255 - tail.utf8.count
+        var stem = String.UnicodeScalarView()
+        var length = 0
+        for scalar in name.unicodeScalars {
+            length += UTF8.width(scalar)
+            guard length <= budget else { break }
+            stem.append(scalar)
+        }
+        return String(stem) + tail
+    }
 }

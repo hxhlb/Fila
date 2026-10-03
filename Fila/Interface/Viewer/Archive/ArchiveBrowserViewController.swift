@@ -34,8 +34,9 @@ final class ArchiveBrowserViewController: TabContentViewController {
     /// Where "Extract" starts from — the directory the archive itself lives in.
     private let destinationHint: String
     /// Set only for a nested archive: the member pulled out into the app's own
-    /// container, removed when this screen goes.
-    private let staged: URL?
+    /// container, removed once this screen, its folders and any extraction
+    /// from it have all gone.
+    private let staged: StagedArchive?
 
     /// One listed member, and the identity the snapshot sorts on.
     ///
@@ -97,7 +98,7 @@ final class ArchiveBrowserViewController: TabContentViewController {
         archivePath: String,
         link: any LocalFileAccess,
         destinationHint: String,
-        staged: URL?,
+        staged: StagedArchive?,
         directory: String = "",
         members: [Row]? = nil,
         fileActionsOwner: ViewerContainerViewController? = nil,
@@ -126,9 +127,6 @@ final class ArchiveBrowserViewController: TabContentViewController {
         // libarchive's read loop is synchronous between blocks, so cancelling is
         // a flag the pump checks — see the progress handler in `extract`.
         work?.cancel()
-        if let staged {
-            try? FileManager.default.removeItem(at: staged.deletingLastPathComponent())
-        }
     }
 
     override func viewDidLoad() {
@@ -422,6 +420,7 @@ final class ArchiveBrowserViewController: TabContentViewController {
             into: destination,
             estimate: ArchiveSpaceEstimate(entries: rows.map(\.entry)),
             encrypted: rows.contains(where: \.entry.isEncrypted),
+            keepingAlive: staged,
         )
     }
 }
@@ -438,7 +437,8 @@ extension ArchiveBrowserViewController: UICollectionViewDelegate {
                 archivePath: archivePath,
                 link: link,
                 destinationHint: destinationHint,
-                staged: nil,
+                // A folder of a nested archive reads the same staged file.
+                staged: staged,
                 directory: path,
                 members: members,
                 fileActionsOwner: fileActionsOwner,
@@ -506,7 +506,7 @@ extension ArchiveBrowserViewController: UICollectionViewDelegate {
                 archivePath: staged.path,
                 link: link,
                 destinationHint: destinationHint,
-                staged: staged,
+                staged: StagedArchive(file: staged),
                 openArchive: {
                     let descriptor = open(staged.path, O_RDONLY)
                     guard descriptor >= 0 else { throw ViewerFailure.readFailed(errno) }

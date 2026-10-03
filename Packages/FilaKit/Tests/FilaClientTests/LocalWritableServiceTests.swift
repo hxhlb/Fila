@@ -92,6 +92,34 @@ struct LocalWritableServiceTests {
     }
 
     @Test
+    func `Replacing a link replaces the link itself, as a copy does, and leaves its target alone`() async throws {
+        let service = adapter()
+        scratch.file("target.txt", contents: "kept")
+        #expect(symlink("target.txt", scratch.path("link.txt")) == 0)
+        let descriptor = try source(Data("fresh".utf8))
+        defer { close(descriptor) }
+        try await service.writeFile(from: descriptor, size: 5, to: ServicePath("link.txt"), policy: .replace) { _ in }
+        var status = stat()
+        #expect(lstat(scratch.path("link.txt"), &status) == 0)
+        #expect(status.st_mode & S_IFMT == S_IFREG)
+        #expect(status.st_mode & 0o7777 == 0o777, "a new item's defaults, not the link's mode")
+        #expect(FileManager.default.contents(atPath: scratch.path("link.txt")) == Data("fresh".utf8))
+        #expect(FileManager.default.contents(atPath: scratch.path("target.txt")) == Data("kept".utf8))
+        #expect(!names().contains { $0.hasPrefix(".fila-transfer-") })
+    }
+
+    @Test
+    func `A planned file swapped for a link is not read through it`() async throws {
+        let service = adapter()
+        scratch.file("secret.txt", contents: "secret")
+        #expect(symlink("secret.txt", scratch.path("report.txt")) == 0)
+        let failure = await #expect(throws: FilaFailure.self) {
+            _ = try await service.openForReading(ServicePath("report.txt"))
+        }
+        #expect(failure?.systemError == ELOOP)
+    }
+
+    @Test
     func `A cancelled write leaves nothing at the name and no temporary`() async throws {
         let service = adapter()
         let payload = Data(count: 24 * LocalFileServiceAdapter.chunkSize)

@@ -83,6 +83,88 @@
         }
       }
     },
+    "an integer outside the signed 64-bit range" : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "عدد صحيح خارج نطاق الأعداد الصحيحة ذات الإشارة بطول 64 بت"
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "eine Ganzzahl außerhalb des vorzeichenbehafteten 64-Bit-Bereichs"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "an integer outside the signed 64-bit range"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "un número entero fuera del rango de 64 bits con signo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "un entier hors de la plage des entiers signés sur 64 bits"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "un numero intero al di fuori dell’intervallo a 64 bit con segno"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "符号付き64ビットの範囲を超える整数"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "부호 있는 64비트 범위를 벗어나는 정수"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "um número inteiro fora do intervalo de 64 bits com sinal"
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "целое число за пределами диапазона 64-битных чисел со знаком"
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "một số nguyên nằm ngoài phạm vi số nguyên có dấu 64 bit"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "超出有符号 64 位范围的整数"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "超出有號 64 位元範圍的整數"
+          }
+        }
+      }
+    },
     "its contents could not be read" : {
       "localizations" : {
         "ar" : {

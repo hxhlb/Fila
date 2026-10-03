@@ -43,7 +43,9 @@ extension UIViewController {
             }
             await openFile(details, session: session, gallery: gallery)
         } catch let failure as FilaFailure {
-            report(failure)
+            // Over whatever is up: a `fila://view` link arrives at the root,
+            // which UIKit refuses to present from while a sheet is showing.
+            TopPresenter.whenReady(from: self) { $0.report(failure) }
         } catch {}
     }
 
@@ -57,12 +59,17 @@ extension UIViewController {
         // Opening may await the backend. A later tap or tab switch must not
         // put this document on a different page's navigation stack.
         guard !Task.isCancelled, let navigation,
-              navigation.topViewController === source,
-              navigation.viewIfLoaded?.window != nil else { return }
+              navigation.topViewController === source else { return }
         if navigationController != nil {
+            guard navigation.viewIfLoaded?.window != nil else { return }
             navigation.pushViewController(viewer, animated: true)
         } else {
-            shell?.push(viewer)
+            // The shell puts its tab back on screen before it pushes, so a
+            // tab overview covering it — the case for a `fila://view` link —
+            // is closed rather than a reason to drop the viewer. Choosing
+            // another tab meanwhile is: the push would land in that one.
+            guard let shell, shell.content.navigation === navigation else { return }
+            shell.push(viewer)
         }
     }
 }

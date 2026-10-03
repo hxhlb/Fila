@@ -28,7 +28,11 @@ public struct ServicePath: Hashable, Sendable, Codable, CustomStringConvertible 
     /// so "/a/b/" and "a/b" are the same path; an empty component elsewhere
     /// is not.
     public init(_ string: String) throws {
-        var pieces = string.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        // On the byte, as `validate` checks and the kernel splits: "/" plus a
+        // combining mark is one Character, and a Character split would glue
+        // such a name to the one before it.
+        var pieces = string.utf8.split(separator: UInt8(ascii: "/"), omittingEmptySubsequences: false)
+            .map { String(decoding: $0, as: UTF8.self) }
         if pieces.first == "" {
             pieces.removeFirst()
         }
@@ -73,7 +77,9 @@ public struct ServicePath: Hashable, Sendable, Codable, CustomStringConvertible 
     private static func validate(_ component: String) throws {
         guard !component.isEmpty else { throw ServicePathError.emptyComponent }
         guard component != ".", component != ".." else { throw ServicePathError.relativeComponent(component) }
-        guard !component.contains("/") else { throw ServicePathError.separatorInComponent(component) }
+        // By bytes: "/" followed by a combining mark is one Character that is
+        // not "/", and the kernel still splits on it.
+        guard !component.utf8.contains(UInt8(ascii: "/")) else { throw ServicePathError.separatorInComponent(component) }
         guard !component.utf8.contains(0) else { throw ServicePathError.nulInComponent }
     }
 

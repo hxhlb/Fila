@@ -28,16 +28,21 @@ extension FileBrowserViewController: UICollectionViewDropDelegate {
         withDestinationIndexPath indexPath: IndexPath?,
     ) -> UICollectionViewDropProposal {
         // Nothing enters the trash but a delete: a dropped item would have no
-        // origin to be put back to.
-        guard !isTrash else { return UICollectionViewDropProposal(operation: .forbidden) }
-        let operation = FileReference.proposal(for: session, into: .local(dropTarget(at: indexPath)))
+        // origin to be put back to. Neither this page nor its row in the
+        // folder above, where hidden files show it.
+        let target = dropTarget(at: indexPath)
+        guard !isTrash, !FileActions.isTrashDestination(target) else {
+            return UICollectionViewDropProposal(operation: .forbidden)
+        }
+        let operation = FileReference.proposal(for: session, into: .local(target))
         return UICollectionViewDropProposal(operation: operation, intent: .insertIntoDestinationIndexPath)
     }
 
     func collectionView(_: UICollectionView, performDropWith coordinator: UICollectionViewDropCoordinator) {
-        guard !isTrash else { return }
+        let target = dropTarget(at: coordinator.destinationIndexPath)
+        guard !isTrash, !FileActions.isTrashDestination(target) else { return }
         recordDirectoryUse()
-        FileDrop.receive(coordinator.items.map(\.dragItem), into: .local(dropTarget(at: coordinator.destinationIndexPath)), from: self)
+        FileDrop.receive(coordinator.items.map(\.dragItem), into: .local(target), from: self)
     }
 
     /// The folder under the pointer, or this one.

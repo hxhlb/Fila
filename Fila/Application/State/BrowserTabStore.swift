@@ -243,14 +243,14 @@ final class BrowserTabStore {
     /// keeps sending links must not be able to grow a preference without bound
     /// — nor to push a person's own tabs out of the switcher. A path already
     /// open is switched to rather than opened twice, so a page that sends the
-    /// same link repeatedly costs nothing. Opening still happens either way,
-    /// because the caller navigates regardless of what this answers.
-    func openFromLink(_ path: String) {
+    /// same link repeatedly costs nothing. Answers false at the cap when the
+    /// path is not open yet: the caller then opens it in the current tab.
+    func openFromLink(_ path: String) -> Bool {
         if let existing = tabs.first(where: { $0.path == path }) {
             select(existing.id)
-            return
+            return true
         }
-        open(path)
+        return open(path) != nil
     }
 
     func select(_ id: UUID) {

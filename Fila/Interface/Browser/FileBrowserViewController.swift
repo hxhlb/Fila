@@ -79,7 +79,7 @@ final class FileBrowserViewController: BackendListViewController<FileNode>, TabC
         if isTrash {
             return String(localized: "Trash")
         }
-        return URL(fileURLWithPath: directory).lastPathComponent
+        return FilePresentation.visibleName((directory as NSString).lastPathComponent)
     }
 
     private lazy var favoritesMenu = makeCurrentCrumbMenu()
@@ -97,6 +97,10 @@ final class FileBrowserViewController: BackendListViewController<FileNode>, TabC
     /// found. It survives across pages because the listing streams: the row it
     /// names may be on the fourth page, or on none of them.
     private var pendingSelection: String?
+
+    /// Hidden entries a pending selection brought into view, shown on this
+    /// page whatever Show Hidden Files says.
+    private var revealedNames: Set<String> = []
 
     /// Where this folder was left when its tab was last put away. Applied once,
     /// after the first page lands — before that there is nothing to scroll.
@@ -227,6 +231,13 @@ final class FileBrowserViewController: BackendListViewController<FileNode>, TabC
         let modeChanged = editing != isEditing
         if editing, modeChanged {
             recordDirectoryUse()
+            // A row selected outside edit mode is a reveal's highlight — a
+            // link, Show Original, a restored tab — never a choice. Carried
+            // into the selection it would join the next Delete or Move
+            // unseen. `select(_:)` and the two-finger pan select after this.
+            collectionView.indexPathsForSelectedItems?.forEach {
+                collectionView.deselectItem(at: $0, animated: false)
+            }
         }
         super.setEditing(editing, animated: animated)
         collectionView.isEditing = editing
@@ -620,12 +631,13 @@ final class FileBrowserViewController: BackendListViewController<FileNode>, TabC
     /// Scroll a revealed entry into view and select it, once the page carrying
     /// it has landed. Hidden entries are a real case here: a link can name a
     /// dotfile the browser is currently filtering out, and revealing it means
-    /// showing it, not silently doing nothing.
+    /// showing it, not silently doing nothing — that one row, on this page,
+    /// never the stored Show Hidden Files a link has no business changing.
     private func revealPendingSelectionIfArrived() {
         guard let name = pendingSelection else { return }
         guard let index = visible.firstIndex(where: { $0.name == name }) else {
-            if !session.showsHidden, items.contains(where: { $0.name == name }) {
-                session.setShowsHidden(true)
+            if !session.showsHidden, !revealedNames.contains(name), items.contains(where: { $0.name == name }) {
+                revealedNames.insert(name)
                 applySnapshot(animated: false)
             }
             return
@@ -683,6 +695,7 @@ final class FileBrowserViewController: BackendListViewController<FileNode>, TabC
             sortKey: session.sortKey,
             ascending: session.sortAscending,
             excluded: removingNames.union(removedNames.keys),
+            revealed: revealedNames,
         )
     }
 

@@ -394,7 +394,7 @@ struct TerminalPlan {
             }
             return nil
         }
-        guard !name.isEmpty, !name.contains("/") else { return nil }
+        guard !name.isEmpty, !name.utf8.contains(UInt8(ascii: "/")) else { return nil }
         let directories = bootstrapBinaryDirectories.map(layout.bootstrapPath)
             + systemBinaryDirectories.map(layout.systemPath)
         for directory in directories {

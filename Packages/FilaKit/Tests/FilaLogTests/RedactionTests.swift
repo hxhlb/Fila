@@ -68,6 +68,28 @@ struct RedactionTests {
     }
 
     @Test
+    func `A header written with a space after its colon loses the value after it`() {
+        #expect(FilaLog.redacting("X-Auth-Token: abc123") == "X-Auth-Token: \(placeholder)")
+        #expect(FilaLog.redacting("password: hunter2 then") == "password: \(placeholder) then")
+        // A header that is the credential in full, whichever way it is spaced.
+        #expect(FilaLog.redacting("authorization:Basic dXNlcjpwdw==") == "authorization:\(placeholder)")
+        #expect(!FilaLog.redacting("Cookie: sid=abc").contains("abc"))
+        #expect(!FilaLog.redacting("Set-Cookie: sid=abc; HttpOnly").contains("abc"))
+        // A colon that ends a word naming nothing secret takes nothing.
+        #expect(FilaLog.redacting("errno: 13") == "errno: 13")
+    }
+
+    @Test
+    func `A credential later in a query loses its value`() {
+        #expect(FilaLog.redacting("GET /f?x=1&token=SECRET") == "GET /f?x=1&token=\(placeholder)")
+        #expect(!FilaLog.redacting("GET /a?x=1&password=pw&y=2").contains("pw"))
+        // A value with an `&` in it does not leave its tail behind.
+        #expect(!FilaLog.redacting("GET /a?password=a&b").contains("&b"))
+        // Parameters that name nothing secret are left as they were.
+        #expect(FilaLog.redacting("GET /f?x=1&y=2") == "GET /f?x=1&y=2")
+    }
+
+    @Test
     func `A spawned command's password flag takes the argument after it`() {
         // Execution is no longer forbidden in this project, and an argv is the
         // most reliable place in any program for a password to end up.

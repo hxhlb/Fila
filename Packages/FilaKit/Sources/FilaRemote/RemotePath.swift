@@ -1,3 +1,4 @@
+import FilaProtocol
 import Foundation
 
 /// The translation between a request target and a path on the device, and the
@@ -30,31 +31,44 @@ public enum RemotePath {
     /// The path components of a request target, decoded and checked, or nil if
     /// any of them is one this server refuses to look at.
     static func components(of target: String) -> [String]? {
-        var text = target
+        // Bytes throughout, as the kernel reads a path: "/" followed by a
+        // combining mark is one Character that is not "/", so a Character
+        // search misses that separator and a Character split hands
+        // `../\u{301}x` over as a single name.
+        let slash = UInt8(ascii: "/")
+        var text = Array(target.utf8)
 
-        // Absolute form. Everything up to the third slash is scheme and
+        // Query and fragment are not part of the name of a file — and they go
+        // first, so a URL carried in a query (`/a?ref=http://h/b`) is never
+        // mistaken for the target's own scheme and authority.
+        if let cut = text.firstIndex(where: { $0 == UInt8(ascii: "?") || $0 == UInt8(ascii: "#") }) {
+            text.removeSubrange(cut...)
+        }
+        // Absolute form, only where a scheme can be: an origin-form target
+        // starts with its path. Everything up to the third slash is scheme and
         // authority; an authority with no path at all is the collection root.
-        if let range = text.range(of: "://") {
-            let rest = text[range.upperBound...]
-            guard let slash = rest.firstIndex(of: "/") else { return [] }
-            text = String(rest[slash...])
+        if text.first != slash, let scheme = index(of: Array("://".utf8), in: text) {
+            let rest = text[(scheme + 3)...]
+            guard let start = rest.firstIndex(of: slash) else { return [] }
+            text = Array(rest[start...])
         }
-        // Query and fragment are not part of the name of a file.
-        if let cut = text.firstIndex(where: { $0 == "?" || $0 == "#" }) {
-            text = String(text[..<cut])
-        }
-        guard text.hasPrefix("/") else { return nil }
+        guard text.first == slash else { return nil }
 
         var result: [String] = []
-        for raw in text.split(separator: "/", omittingEmptySubsequences: true) {
-            guard let name = String(raw).removingPercentEncoding else { return nil }
+        for raw in text.split(separator: slash, omittingEmptySubsequences: true) {
+            guard let name = String(decoding: raw, as: UTF8.self).removingPercentEncoding else { return nil }
             // `.` and `..` never name a file, `/` cannot be in one, and a NUL
             // truncates every path the C library will later be handed.
-            guard !name.isEmpty, name != ".", name != "..",
-                  !name.contains("/"), !name.contains("\0") else { return nil }
+            guard FilaGuard.isComponent(name) else { return nil }
             result.append(name)
         }
         return result
+    }
+
+    /// Where `pattern` first occurs in `bytes`.
+    private static func index(of pattern: [UInt8], in bytes: [UInt8]) -> Int? {
+        guard bytes.count >= pattern.count else { return nil }
+        return (0 ... bytes.count - pattern.count).first { bytes[$0 ..< $0 + pattern.count].elementsEqual(pattern) }
     }
 
     /// The `href` a `PROPFIND` reports for a path, percent-encoded.
@@ -63,13 +77,16 @@ public enum RemotePath {
     /// clients do not, and the specification is unambiguous.
     public static func href(for path: String, root: String, isCollection: Bool) -> String {
         let base = root == "/" ? "" : root
-        var remainder = path
-        if !base.isEmpty, remainder.hasPrefix(base) {
-            remainder.removeFirst(base.count)
+        // Bytes throughout, as `components(of:)` reads the href back: a
+        // Character split would glue "/" plus a combining mark into one name
+        // and escape that slash as `%2F`, an href the server then refuses.
+        var remainder = path.utf8[...]
+        if !base.isEmpty, remainder.starts(with: base.utf8) {
+            remainder = remainder.dropFirst(base.utf8.count)
         }
         let encoded = remainder
-            .split(separator: "/", omittingEmptySubsequences: true)
-            .map(escape)
+            .split(separator: UInt8(ascii: "/"), omittingEmptySubsequences: true)
+            .map { escape(String(decoding: $0, as: UTF8.self)) }
             .joined(separator: "/")
         let href = "/" + encoded
         return isCollection && href != "/" ? href + "/" : href

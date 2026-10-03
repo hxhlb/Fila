@@ -79,7 +79,7 @@ enum FileImport {
     }
 
     private static func copy(_ source: URL, named name: String, into directory: URL) throws -> URL {
-        guard !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.contains("\0") else {
+        guard FilaGuard.isComponent(name) else {
             throw FilaFailure(errno: EINVAL, path: name)
         }
         let target = directory.appendingPathComponent(name)

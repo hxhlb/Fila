@@ -22,19 +22,33 @@ final class PropertyListEditorViewController: TabContentViewController {
         var saved: (PropertyListValue, PropertyListSerialization.PropertyListFormat)?
         var hasUnsavedChanges = false
         var isSaving = false
+        /// The file as it was read, or as the last save left it. See
+        /// `AtomicSave.save`.
+        var loadedIdentity: FileIdentity?
         weak var rootController: PropertyListEditorViewController?
 
         init(source: Source) {
             self.source = source
+            if case let .file(_, file, _) = source {
+                loadedIdentity = file.identity
+            }
         }
 
         var isEditing: Bool {
             saved != nil
         }
 
+        /// The format it was read in, when that is one a save can write back.
+        /// `PropertyListSerialization` reads the old OpenStep text format but
+        /// cannot write it, so such a file is shown and never edited: a save
+        /// would fail, or quietly become XML that its reader may not take.
+        var isWritableFormat: Bool {
+            format != .openStep
+        }
+
         var canEdit: Bool {
             if case .file = source {
-                return root?.supportsEditing == true
+                return root?.supportsEditing == true && isWritableFormat
             }
             return false
         }
@@ -444,13 +458,21 @@ final class PropertyListEditorViewController: TabContentViewController {
         document.isSaving = true
         refresh()
         let format = document.format
+        let loaded = document.loadedIdentity
         Task { [weak self] in
             guard let self else { return }
             do {
                 let data = try PropertyListBudget.serialize(root.foundationObject, format: format)
-                try await AtomicSave.write(data, to: details.path, link: link)
-                document.saved = nil
-                document.hasUnsavedChanges = false
+                // The screen's path may be a link: the save lands on the file
+                // it leads to, and the link stays a link.
+                switch try await AtomicSave.save(data, to: details.path, expecting: loaded, link: link, from: self) {
+                case let .saved(written):
+                    document.loadedIdentity = written
+                    document.saved = nil
+                    document.hasUnsavedChanges = false
+                case .kept:
+                    break
+                }
                 document.isSaving = false
                 refresh()
             } catch {
@@ -502,6 +524,9 @@ extension PropertyListEditorViewController: UITableViewDataSource, UITableViewDe
     }
 
     func tableView(_: UITableView, titleForFooterInSection _: Int) -> String? {
+        if document.root != nil, !document.isWritableFormat {
+            return String(localized: "This property list is in the old OpenStep format, which can be read but not written. It is shown read-only.")
+        }
         guard document.root?.supportsEditing == false else { return nil }
         return String(localized: "This property list contains values that can be viewed but not edited.")
     }

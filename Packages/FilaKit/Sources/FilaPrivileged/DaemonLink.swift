@@ -261,7 +261,8 @@ public final class DaemonLink: PrivilegedFileAccess, @unchecked Sendable {
     }
 
     /// Change mode, owner, group, times, BSD flags or one extended attribute.
-    public func setAttributes(_ change: AttributeChange, at path: String) async throws {
+    @discardableResult
+    public func setAttributes(_ change: AttributeChange, at path: String) async throws -> AttributeOutcome {
         try await service().setAttributes(change, at: path)
     }
 
@@ -414,10 +415,9 @@ public final class DaemonLink: PrivilegedFileAccess, @unchecked Sendable {
     }
 
     /// Drop the connection. Always the daemon's, because it is the only one
-    /// that has one: an XPC connection whose Mach service was not registered is
-    /// invalid for good, so the retry loop in `FileSession` has to build a
-    /// new one rather than resend on the dead one. There is nothing to drop
-    /// once the local backend is bound, and nothing calls this then.
+    /// that has one. Whatever link is current goes, so this is for the end of
+    /// the process; a request that failed has already dropped the link it
+    /// was sent on, and only that one — see `DaemonFileService.invalidate(generation:)`.
     public func invalidate() {
         daemon.invalidate()
     }

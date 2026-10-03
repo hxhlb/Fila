@@ -160,7 +160,7 @@ final class ImagePageViewController: UIViewController {
         try Task.checkCancellation()
         let data = try file.readAll(limit: ViewerLimits.inMemoryDocumentByteCount)
         try Task.checkCancellation()
-        guard let raster = ImagePreview.make(data: data) else {
+        guard let raster = try ImagePreview.decode(data: data) else {
             throw ViewerFailure.unsupportedContent(
                 String(localized: "This image format is not supported. Open it as Hex to see its contents."),
             )

@@ -83,7 +83,9 @@ final class BrowserGridCell: UICollectionViewCell {
     func configure(node: FileNode, path: String, session: FileSession, decoration: FolderDecoration? = nil) {
         thumbnailTask?.cancel()
         let presentation = node.kind == .directory ? decoration : nil
-        label.text = presentation.map { [$0.name, $0.detail].compactMap(\.self).joined(separator: "\n") } ?? node.name
+        label.text = presentation.map {
+            [$0.name, $0.detail].compactMap(\.self).map(FilePresentation.visibleName).joined(separator: "\n")
+        } ?? FilePresentation.visibleName(node.name)
         label.textColor = presentation == nil ? .label : .systemBrown
         let isApplication = presentation != nil && URL(fileURLWithPath: node.name).pathExtension.lowercased() == "app"
         appBadge.isHidden = presentation == nil || isApplication

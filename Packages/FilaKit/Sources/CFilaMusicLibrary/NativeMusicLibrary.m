@@ -108,6 +108,18 @@ static void FailedStep(NSError **error, NSInteger code, NSString *step) {
     }
 }
 
+// Only these directly stored fields have a transaction-scoped read, so only
+// these can be edited: a field MusicLibrary would accept but this table cannot
+// read back is never offered. Identifiers are fixed here; user values are
+// never SQL fragments.
+static NSDictionary<NSString *, NSString *> *EditableColumns(void) {
+    return @{
+        @"Title": @"item_extra.title", @"Year": @"item_extra.year",
+        @"Comment": @"item_extra.comment", @"TrackNumber": @"item.track_number",
+        @"DiscNumber": @"item.disc_number"
+    };
+}
+
 static NSString *Text(id value) {
     if ([value isKindOfClass:NSString.class]) return value;
     if ([value isKindOfClass:NSNumber.class]) return [value stringValue];
@@ -212,7 +224,7 @@ static NSNumber *ArtworkSource(id entity, NSString *token, int64_t artworkType) 
                 return nil;
             }
             properties[field] = *property;
-            if (![unsettable containsObject:*property]) [editable addObject:field];
+            if (EditableColumns()[field] && ![unsettable containsObject:*property]) [editable addObject:field];
         }
         _properties = [properties copy];
         _editableFields = [editable copy];
@@ -258,14 +270,7 @@ static NSNumber *ArtworkSource(id entity, NSString *token, int64_t artworkType) 
     @try {
         NSString *property = _properties[field];
         if (!property || ![_editableFields containsObject:field]) { Failure(error, 1); return NO; }
-        // Only these directly stored fields have a transaction-scoped read.
-        // Identifiers are fixed here; user values are never SQL fragments.
-        NSDictionary *columns = @{
-            @"Title": @"item_extra.title", @"Year": @"item_extra.year",
-            @"Comment": @"item_extra.comment", @"TrackNumber": @"item.track_number",
-            @"DiscNumber": @"item.disc_number"
-        };
-        NSString *column = columns[field];
+        NSString *column = EditableColumns()[field];
         if (!column) { Failure(error, 1); return NO; }
         NSString *query = [NSString stringWithFormat:
             @"SELECT COALESCE(CAST(%@ AS TEXT), '') FROM item JOIN item_extra USING(item_pid) WHERE item.item_pid = ?",
@@ -325,6 +330,8 @@ static NSNumber *ArtworkSource(id entity, NSString *token, int64_t artworkType) 
     NSNumber *identifier = nil;
     BOOL attemptedAdd = NO;
     BOOL finished = NO;
+    BOOL completed = NO;
+    NSString *membership = nil;
     @try {
         Class sessionClass = NSClassFromString(@"ML3ClientImportSession");
         Class itemClass = NSClassFromString(@"ML3ClientImportItem");
@@ -353,6 +360,7 @@ static NSNumber *ArtworkSource(id entity, NSString *token, int64_t artworkType) 
         NSString *__unsafe_unretained *dateAddedProperty =
             (NSString *__unsafe_unretained *)dlsym(RTLD_DEFAULT, "ML3TrackPropertyDateAdded");
         if (!membershipProperty || !dateAddedProperty) { FailedStep(error, 1, @"library membership properties"); return nil; }
+        membership = *membershipProperty;
 
         id configuration = ImportObject(@"ML3ClientImportSessionConfiguration", @{
             @"operationCount": @1,
@@ -485,6 +493,7 @@ static NSNumber *ArtworkSource(id entity, NSString *token, int64_t artworkType) 
             return nil;
         }
         [(id<MusicLibraryAPI>)_library notifyEntitiesAddedOrRemoved];
+        completed = YES;
         return identifier;
     } @catch (NSException *exception) {
         if (error) *error = [NSError errorWithDomain:@"MusicLibrary" code:3 userInfo:@{
@@ -497,13 +506,55 @@ static NSNumber *ArtworkSource(id entity, NSString *token, int64_t artworkType) 
         if (!finished) {
             @try { [importer cancel]; } @catch (NSException *exception) { }
         }
+        // The session committed a row and a later step failed: the row goes
+        // again, so a retry starts from nothing rather than adding a second
+        // song. Only a removal confirmed by the library frees the audio.
+        BOOL removed = finished && !completed && [self removeImportedTrackID:identifier.longLongValue];
         // A disconnected client cannot prove whether the service committed.
         // Never delete audio which may already be referenced by a library row.
-        if (attemptedAdd && error && *error) {
+        if (attemptedAdd && error && *error && !removed) {
             NSMutableDictionary *info = [(*error).userInfo mutableCopy];
             info[@"PreserveImportedFile"] = @YES;
+            // Either way the caller must not invite a plain retry, which can
+            // add the song a second time. ImportCommitted: the row is there
+            // and the list shows it — the list is the songs that are members
+            // of the library, so it can be deleted from there.
+            // ImportCommitUnknown: the session may or may not have committed
+            // (it never finished), or the row is there but never became a
+            // member, so the list does not show it.
+            if (finished && membership && [self importedTrackIsListed:identifier.longLongValue membership:membership]) {
+                info[@"ImportCommitted"] = @YES;
+            } else {
+                info[@"ImportCommitUnknown"] = @YES;
+            }
             *error = [NSError errorWithDomain:(*error).domain code:(*error).code userInfo:info];
         }
+    }
+}
+
+// Whether the row an import left behind is one the list shows: a member of
+// the library, read back from the library itself. NO when it cannot be read.
+- (BOOL)importedTrackIsListed:(int64_t)trackID membership:(NSString *)membership {
+    @try {
+        id<MusicTrackAPI> track = [self track:trackID error:NULL];
+        return track && [[track valueForProperty:membership] boolValue];
+    } @catch (NSException *exception) {
+        return NO;
+    }
+}
+
+// The rollback of a committed import. YES only when the library itself says
+// the row is gone after the deletion; a row that cannot be found beforehand
+// may simply not be visible yet, which is not proof that it does not exist.
+- (BOOL)removeImportedTrackID:(int64_t)trackID {
+    @try {
+        if (!Signature(class_getInstanceMethod(_trackClass, @selector(deleteFromLibrary)), "B", @[@"@", @":"], NULL)) return NO;
+        id<MusicTrackAPI> track = [self track:trackID error:NULL];
+        if (!track || ![track deleteFromLibrary]) return NO;
+        [(id<MusicLibraryAPI>)_library notifyEntitiesAddedOrRemoved];
+        return ![(Class<MusicTrackAPI>)_trackClass trackWithPersistentID:trackID existsInLibrary:_library];
+    } @catch (NSException *exception) {
+        return NO;
     }
 }
 

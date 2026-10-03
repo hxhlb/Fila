@@ -68,10 +68,17 @@ between the app and the kernel with nothing in between.
   — `ArchiveHelperRun` is the one place the daemon starts a program besides a
   terminal, with an argv of exactly itself, an empty environment and the job as
   JSON on standard input; it refuses everything else. The helper links
-  `FilaFormats` and `FilaFileOps`, so its writes go through the same guard and
-  the same atomic replace, and `ArchiveJob` is the whole of the work — the
-  in-process backend runs the same type when there is no daemon. Progress comes
-  back as lines on the helper's standard output and `SIGTERM` is the cancel.
+  `FilaFormats` and `FilaFileOps`, so a member that replaces something passes
+  the same guard every other write does, and `ArchiveJob` is the whole of the
+  work — the in-process backend runs the same type when there is no daemon.
+  Members are placed through descriptors held on the destination, one
+  component at a time and never through a link, because the helper runs as root
+  into folders a less privileged process can write. Progress comes back as lines
+  on the helper's standard output and `SIGTERM` is the cancel. An archive
+  supplies its own names, so every name in a progress line, note or failure is
+  a display form — control characters as U+FFFD, cut at 1024 bytes — and
+  `filad` drops any line over 64 KiB unread: one huge name must not be what
+  takes a 6 MB daemon over its limit.
   The password of an encrypted zip travels inside the job and is never logged.
 - **Every path is canonicalised before a decision is made about it.** `/var` and
   `/etc` are symlinks into `/private` on every Apple platform; a guard that
@@ -85,14 +92,32 @@ between the app and the kernel with nothing in between.
   more than one hard link: another name may be outside the writable root. Atomic
   replacement and unlink can change an inside directory entry without changing
   that shared inode's content; cleanup must not clear its flags first.
+  Without a writable root, a recursive attribute change leaves every
+  non-directory with a second hard link as it was — its other name may be
+  anywhere, and root would change that file too — and says how many it left
+  (`AttributeOutcome.unchangedSharedFiles`, shown by Properties); under a
+  writable root the walk refuses one with `EROFS`, as every restricted write
+  does.
+  Destructive operations and attribute changes reopen the canonical parent
+  with `O_NOFOLLOW_ANY` (`PinnedDirectory.swift`, retrying with `O_SEARCH` where the
+  parent cannot be read) and act through `*at` calls, so an ancestor swapped
+  for a link after the guard decided fails with `ELOOP` instead of
+  redirecting root. Their input must already be canonical: a `/var` spelling
+  fails there too, and `CanonicalSpellingTests` keeps that in view.
 - **Writes are atomic.** Same-directory temp file, metadata copied across
   (mode, owner, times, xattrs, BSD flags), then `rename(2)`. A half-written
   system plist is a boot loop. The known cost is that `rename` swaps the inode,
   so hard links to the old file and processes holding it open keep the old
   content — that is a deliberate trade, taken because a truncating write can
-  destroy a file the user cannot restore.
+  destroy a file the user cannot restore. `replaceItem` refuses a symlink at
+  the destination with `ELOOP`: renaming over the link would leave the file it
+  names untouched. An editor or a *Write Text to File* that reached a file
+  through a link resolves it first (`AtomicSave.target`) and saves the file at
+  the end of the chain; the link stays a link.
 - **New user files default to mobile:mobile (501:501), mode 0777.** Copies
-  and hard links preserve their metadata, and extraction keeps archive modes.
+  and hard links preserve their metadata, and extraction keeps archive modes
+  while giving every member it creates to mobile:mobile; a member that
+  replaces a file keeps that file's owner, ACL, xattrs and flags.
   Explicit modes remain available for private staging and workspace directories.
   Apply new-file defaults before publication; replacing an existing file keeps
   that file’s metadata.
@@ -110,7 +135,9 @@ between the app and the kernel with nothing in between.
   Preboot while the source is on a data volume. Put Back uses the same
   cross-volume move and never replaces an occupied origin. Undo matches a
   trash-job UUID plus origin, because inode numbers do not survive copying.
-  A read-only trash fails with the real errno and the app offers permanent
+  A second item of the same name gets `-1`, `-2`, …, and a name too long for
+  the suffix is shortened on a scalar boundary (`FilaTrash.itemName`) — Put Back
+  reads the origin, never the trash name. A read-only trash fails with the real errno and the app offers permanent
   deletion. Cancellation or failed removal retains any published trash copy.
 - **iOS 15 is a promise the SDK will break for you.** The floor in
   `Base.xcconfig` says nothing about whether the build runs there: the linker
@@ -174,8 +201,9 @@ between the app and the kernel with nothing in between.
   rather than resolved: `Packages/SMBClient`, because listing a remote
   directory one server response at a time needs one method inside the module
   and every primitive under it is `private`. `FILA-VENDOR.md` beside it
-  records the revision, the single added method and what was left out; keep
-  it true when the copy moves. Versions elsewhere are declared as `from:`
+  records the revision, every change made to the copy (the paging method,
+  and the hardening against servers that answer short or hostile replies)
+  and what was left out; keep it true when the copy moves or changes. Versions elsewhere are declared as `from:`
   minimums, not exact pins. A new dependency also owes `Licenses/` an
   entry — `Scripts/collect-licenses.py` collects them and
   `Licenses/Compatibility.md` records why each licence is compatible.
@@ -218,7 +246,7 @@ between the app and the kernel with nothing in between.
   the libSystem shims).
 - `Packages/FilaKit/` — the local Swift package. Every module's *source* lives
   here, whatever image it ends up in, and every module is testable on the Mac:
-  `FilaProtocol` (the wire vocabulary and `FilaGuard`), `FilaFileOps` (the root
+  `FilaProtocol` (the wire vocabulary, `XPCEventPacer` and `FilaGuard`), `FilaFileOps` (the root
   side's POSIX calls and jobs), `FilaLog`, `FilaClient` (the in-process backend
   and `DescriptorIO`), `FilaPrivileged` (the XPC link — `DaemonLink`,
   `DaemonFileService`), `FilaBackendKit` (the backend contract: `FileService`,
@@ -663,8 +691,11 @@ sentence. The same script fails on a missing or `""` message.
 - `make install` — build for `FLAVOR` and update an existing installation
   through `Scripts/install-device.sh`. Its default transport is `iproxy 2333 22`;
   `DEVICE_HOST`, `DEVICE_PORT`, `DEVICE_USER` and `DEVICE_PASSWORD` support an
-  explicitly authorized device. The package's postinst boots the daemon;
-  uikittools triggers register the app. The updater derives the real bootstrap
+  explicitly authorized device. The package's postinst boots the daemon: it
+  waits up to 15 seconds for the old instance to leave, retries the bootstrap
+  for as long again, and fails the configure step — so `dpkg --configure -a`
+  tries again — when the daemon is loaded in none of system, user/501 or
+  gui/501, printing launchctl's own error. uikittools triggers register the app. The updater derives the real bootstrap
   from the installed package, so first installation still uses the device's
   package installer.
   The script's optional `--launch` argument closes the old Fila before installation
@@ -738,11 +769,14 @@ Verify an existing parent's type, owner, permissions and canonical path rather
 than changing an unknown directory's ownership.
 
 Each consumer removes its own UUID directory when finished, including share
-cancellation and failed preview handoff. Startup lists the dedicated parent
-before deleting stale UUID directories and waits for each delete job's result.
-Normal exit makes a synchronous best effort to remove the whole workspace.
-SIGKILL cannot run cleanup: the next startup removes its leftovers. Do not turn
-an accepted cleanup job into a claimed completion.
+cancellation and failed preview handoff. Startup lists the dedicated parent,
+then removes stale UUID directories in-process as the app's own user — never
+as root, since the parent was checked by path and a same-user process could
+swap it for a link — and waits for that removal. A leftover that will not go is
+logged and retried on the next launch; it never stops this launch from making
+its own workspace. Normal exit makes a synchronous best effort to remove the
+whole workspace. SIGKILL cannot run cleanup: the next startup removes its
+leftovers. Do not turn an accepted cleanup job into a claimed completion.
 
 Atomic save, copy, extraction, ZIP publication and WebDAV publication still
 require a temporary beside their destination; daemon writes remain inside its

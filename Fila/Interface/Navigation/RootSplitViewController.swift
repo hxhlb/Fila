@@ -202,7 +202,7 @@ final class RootSplitViewController: UISplitViewController {
                 })
                 buttons.insert(back, at: 0)
             } else if ancestors.isEmpty, buttons.isEmpty,
-                      let browser = controller as? FileBrowserViewController, browser.directory != "/"
+                      let browser = controller as? FileBrowserViewController, hasParent(browser.directory)
             {
                 back.menu = nil
                 buttons.insert(back, at: 0)
@@ -227,6 +227,17 @@ final class RootSplitViewController: UISplitViewController {
         sidebar.setColumnToggle(inSidebar ? columnToggle : nil, animated: animated)
     }
 
+    /// Whether Back at the root of a tab's stack has a folder to open. Not at
+    /// `/`, and not at the local backend's own root: inside a container that
+    /// is Documents, and nothing above it is offered — the breadcrumb and the
+    /// restored tab chain stop there too.
+    private func hasParent(_ directory: String) -> Bool {
+        guard directory != "/" else { return false }
+        let root = FileSession.shared.local.rootPath
+        guard root != "/" else { return true }
+        return ![root, URL(fileURLWithPath: root).resolvingSymlinksInPath().path].contains(directory)
+    }
+
     private func navigateBack(to requested: UIViewController? = nil) {
         guard let source = content.visibleTop,
               !source.isEditing, !source.navigationItem.hidesBackButton,
@@ -234,7 +245,7 @@ final class RootSplitViewController: UISplitViewController {
               navigation.transitionCoordinator == nil else { return }
         if navigation.viewControllers.count == 1 {
             guard requested == nil, let browser = source as? FileBrowserViewController,
-                  browser.directory != "/" else { return }
+                  hasParent(browser.directory) else { return }
             let parent = FileBrowserViewController(directory: (browser.directory as NSString).deletingLastPathComponent)
             navigation.setViewControllers([parent, source], animated: false)
             navigation.popViewController(animated: true)
@@ -295,7 +306,7 @@ final class RootSplitViewController: UISplitViewController {
     /// what makes "a tab can be covered by a preview" true without a second
     /// mechanism for each kind of cover.
     func push(_ viewController: UIViewController, animated: Bool = true) {
-        confirmLeavingContent { [weak self] in
+        confirmLeavingContent(replacing: false) { [weak self] in
             self?.dismissSidebarSheet()
             self?.content.navigation?.pushViewController(viewController, animated: animated)
         }
@@ -326,18 +337,7 @@ final class RootSplitViewController: UISplitViewController {
     func openInNewTab(_ path: String) {
         content.captureCurrentTab()
         guard let tab = tabs.open(path) else {
-            FeedbackAlert.show(
-                String(localized: "Too Many Tabs"),
-                message: String(localized: "This folder opened in the current tab. Close a tab to open a new one."),
-            )
-            confirmLeavingContent { [weak self] in
-                guard let self else { return }
-                if let browser = content.navigation?.topViewController as? FileBrowserViewController {
-                    browser.open(directory: path)
-                } else {
-                    content.showRoot(path, select: nil)
-                }
-            }
+            openInCurrentTabAtCap(path)
             return
         }
         // A tour rather than a cut, so that opening in a new tab feels like
@@ -370,13 +370,37 @@ final class RootSplitViewController: UISplitViewController {
         content.showCurrentTab(root: controller)
     }
 
+    /// A new tab asked for at the cap: the folder opens in the current tab
+    /// instead, and the card says so.
+    private func openInCurrentTabAtCap(_ path: String) {
+        FeedbackAlert.show(
+            String(localized: "Too Many Tabs"),
+            message: String(localized: "This folder opened in the current tab. Close a tab to open a new one."),
+        )
+        confirmLeavingContent { [weak self] in
+            guard let self else { return }
+            if let browser = content.navigation?.topViewController as? FileBrowserViewController {
+                browser.open(directory: path)
+            } else {
+                content.showRoot(path, select: nil)
+            }
+        }
+    }
+
     /// The `fila://open?path=…&tab=new` destination. `BrowserTabStore.openFromLink`
     /// decides *whether* a tab is made — it is capped and it deduplicates,
-    /// because a link is an unauthenticated entry point — and this shows
-    /// whatever it decided, so the link navigates either way.
+    /// because a link is an unauthenticated entry point. At the cap the link
+    /// opens in the current tab, as Open in New Tab does, so it navigates
+    /// either way.
     func openFromLink(_ path: String) {
         content.captureCurrentTab()
-        tabs.openFromLink(path)
+        guard tabs.openFromLink(path) else {
+            openInCurrentTabAtCap(path)
+            if !isCollapsed {
+                show(.secondary)
+            }
+            return
+        }
         content.showCurrentTab()
         if !isCollapsed {
             show(.secondary)
@@ -432,10 +456,16 @@ final class RootSplitViewController: UISplitViewController {
 
     /// Closing or replacing content consults the editor that owns its work.
     /// Merely switching to another retained tab does not discard anything.
-    private func confirmLeavingContent(_ leave: @escaping () -> Void) {
+    ///
+    /// `replacing` is false for a push, which covers the page and leaves it in
+    /// the stack, so a running install under it carries on.
+    private func confirmLeavingContent(replacing: Bool = true, _ leave: @escaping () -> Void) {
         // The page on this screen, not a tab still arriving from a menu: a
         // push or replace acts on what the person is looking at.
         content.showInstalledTab()
+        if replacing, refusesLeavingInstall() {
+            return
+        }
         let navigation = content.navigation
         let source = navigation?.topViewController
         let viewer = navigation?.viewControllers.compactMap { $0 as? ViewerContainerViewController }.last
@@ -451,6 +481,14 @@ final class RootSplitViewController: UISplitViewController {
         } else {
             leave()
         }
+    }
+
+    /// A package install running in this tab, said so before a replacement
+    /// starts rather than when it lands: the navigation would refuse it too,
+    /// but after the sidebar closed and the tab store had recorded the jump.
+    private func refusesLeavingInstall() -> Bool {
+        guard let navigation = content.navigation as? TabNavigationController else { return false }
+        return navigation.refusesRemoving(navigation.viewControllers)
     }
 
     /// Called when the app goes away. The stack is already written down on

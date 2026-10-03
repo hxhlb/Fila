@@ -8,12 +8,13 @@ import Foundation
 ///
 /// The one job that moves file bytes itself, which is why it never runs inside
 /// `filad`: on a device it is the body of `fila-archive`, a process the daemon
-/// spawns and signals, and in the app without a daemon it runs in-process. The
-/// filesystem it touches goes through `FileOperations` either way, so the guard
-/// and the atomic replace are the same ones every other write uses.
+/// spawns and signals, and in the app without a daemon it runs in-process.
+/// What it opens and creates goes through `FileOperations` either way, and an
+/// extracted member replaces nothing the guard would refuse.
 ///
 /// Every path an archive supplies is joined to the destination in exactly one
-/// place, `Placement`, and nothing is created through a link this run planted.
+/// place, `Placement`, which reaches it through descriptors rather than a path,
+/// and nothing is created through a link.
 public final class ArchiveJob: @unchecked Sendable {
     private let request: JobRequest
     private let options: ArchiveOptions
@@ -58,7 +59,8 @@ public final class ArchiveJob: @unchecked Sendable {
         } catch let failure as FilaFailure {
             return failure
         } catch let failure as FormatFailure {
-            note("libarchive: \(failure)")
+            // libarchive's own message can quote the member's name.
+            note(ArchivePath.displayName("libarchive: \(failure)"))
             return Self.outcome(for: failure, path: progress.currentPath)
         } catch {
             return FilaFailure(code: .operationFailed)
@@ -76,9 +78,12 @@ public final class ArchiveJob: @unchecked Sendable {
         }
     }
 
-    private func checkCancelled(_ path: String) throws {
+    /// `path` is built only when the job has been cancelled: for a member it
+    /// is a display name, and making one for every entry of a large archive
+    /// would be a pass over every name for nothing.
+    private func checkCancelled(_ path: @autoclosure () -> String) throws {
         if isCancelled {
-            throw FilaFailure(code: .cancelled, path: path)
+            throw FilaFailure(code: .cancelled, path: path())
         }
     }
 
@@ -152,7 +157,12 @@ public final class ArchiveJob: @unchecked Sendable {
             name: name,
             path: path,
             kind: kind,
-            mode: metadata.st_mode & 0o7777,
+            // The archive records no owner, so every member reads back as
+            // root's: a mobile file's setuid or setgid bit kept beside that
+            // unpacks, under any extractor that restores ownership as root, as
+            // a setuid-root program made from something the user could write.
+            // The sticky bit grants nothing and stays.
+            mode: metadata.st_mode & 0o1777,
             modified: Date(timeIntervalSince1970: Double(metadata.st_mtimespec.tv_sec)),
             byteCount: kind == .regular ? Int64(metadata.st_size) : 0,
             linkTarget: linkTarget,
@@ -242,12 +252,9 @@ public final class ArchiveJob: @unchecked Sendable {
             do { try publication?.discard() }
             catch { note("could not remove extraction temporary: \(error)") }
         }
-        let placement = try Placement(
-            operations: operations,
-            destination: publication?.temporary ?? FilaPath.canonical(destination),
-            overwrite: publication == nil ? request.overwrite : false,
-        )
-        try placement.prepare()
+        let placement = try publication.map {
+            try Placement(operations: operations, directory: $0.workspace, path: $0.temporary, overwrite: false)
+        } ?? Placement(operations: operations, creating: destination, overwrite: request.overwrite)
 
         // Matched by position, never by name — see `ArchiveSelection`.
         var wanted = options.members.map { selection in
@@ -266,14 +273,14 @@ public final class ArchiveJob: @unchecked Sendable {
                 + (entry.hardLinkTarget?.utf8.count ?? 0)
             guard retainedBytes <= remainingMetadata else { throw FilaFailure(errno: E2BIG, path: archive) }
             remainingMetadata -= retainedBytes
-            try checkCancelled(entry.declaredPath)
+            try checkCancelled(ArchivePath.displayName(entry.declaredPath))
             if wanted != nil {
                 guard let listed = wanted?.removeValue(forKey: index) else { continue }
                 // The listing and this pass are two reads of a file on a
                 // filesystem the user is also using. A member that is no
                 // longer the one they ticked is not theirs to receive.
                 guard listed == entry.declaredPath else {
-                    note("skipped “\(entry.declaredPath)”: the archive changed after it was listed")
+                    note("skipped “\(ArchivePath.displayName(entry.declaredPath))”: the archive changed after it was listed")
                     progress.finishedItem(bytes: 0)
                     continue
                 }
@@ -288,12 +295,15 @@ public final class ArchiveJob: @unchecked Sendable {
             try place(entry, with: placement, from: reader, progress: progress, note: note)
         }
         for entry in links {
-            try checkCancelled(entry.declaredPath)
+            try checkCancelled(ArchivePath.displayName(entry.declaredPath))
             progress.beginItem(entry.declaredPath)
             try place(entry, with: placement, from: reader, progress: progress, note: note)
         }
-        try placement.finish()
-        try publication?.publish(archiveName: archive) { try self.checkCancelled(archive) }
+        // Publication moves the top of the tree to another parent, which for a
+        // directory needs that directory's own write bit when the mover is not
+        // root, so a read-only top-level folder gets its mode once it has moved.
+        let deferred = try placement.finish(deferringTopLevel: publication != nil)
+        try publication?.publish(archiveName: archive, topLevelModes: deferred) { try self.checkCancelled(archive) }
     }
 
     private func place(
@@ -311,7 +321,7 @@ public final class ArchiveJob: @unchecked Sendable {
         } catch let skipped as Placement.Skipped {
             // A member the archive cannot be trusted with is left out and said
             // so; a member the filesystem refused stops the job with its errno.
-            note("skipped “\(entry.declaredPath)”: \(skipped.reason)")
+            note("skipped “\(ArchivePath.displayName(entry.declaredPath))”: \(skipped.reason)")
         }
         progress.finishedItem(bytes: entry.byteCount ?? 0)
     }
@@ -339,8 +349,9 @@ public final class ArchiveJob: @unchecked Sendable {
             itemsTotal = items
         }
 
+        /// The name goes out in every report, so only its display form is kept.
         func beginItem(_ path: String) {
-            currentPath = path
+            currentPath = ArchivePath.displayName(path)
             currentFileBytes = 0
             emit(throttled: true)
         }
@@ -385,6 +396,12 @@ public final class ArchiveJob: @unchecked Sendable {
 /// earlier entries in the same run already created: a symlink an archive
 /// planted two entries ago is the thing a later entry gets written *through*,
 /// and only something that remembers the run can see it.
+///
+/// Every member is reached from a descriptor on the destination, one
+/// component at a time and never through a link, rather than through a path
+/// string. On a device this runs as root into folders a less privileged
+/// process can write, and a path the kernel resolves again at each call is
+/// one whose components that process can swap between the check and the use.
 private final class Placement {
     /// A member left out on purpose. The reason goes to the log; the job
     /// carries on, because the rest of the archive is still the user's.
@@ -393,66 +410,88 @@ private final class Placement {
     }
 
     private let operations: FileOperations
+    /// For the guard, for the longest path a member may get, and for
+    /// messages. Nothing is opened through it.
     private let destination: String
+    private let root: Int32
     private let overwrite: Bool
+    /// New members belong to the user, as every new file does, and are given
+    /// to them before they have a name anyone else can see.
+    private let owner = AttributeChange.newItemDefaults
 
-    /// Directories this run created. Only these get an archive's mode:
-    /// extracting something with a `Library/` entry into `/var/mobile` must
-    /// not chmod the user's own `Library` to whatever the archive felt like,
-    /// as root.
+    /// Directories this run created, relative to the destination. Only these
+    /// get an archive's mode: extracting something with a `Library/` entry
+    /// into `/var/mobile` must not chmod the user's own `Library` to whatever
+    /// the archive felt like, as root.
     private var created: Set<String> = []
     private var directoryPermissions: [String: mode_t] = [:]
-    /// Directories confirmed to be directories rather than symlinks pointing
-    /// somewhere else. `mkdir(2)` answers `EEXIST` for both, and the
-    /// difference is the whole attack.
-    private var verified: Set<String> = []
     /// Relative paths this run created as symbolic links. Nothing may be
     /// written through one, including a later link entry.
     private var planted: Set<String> = []
+    /// The directory the last member went into, still open: most members
+    /// share a parent with the one before.
+    private var recent: (relative: String, descriptor: Int32)?
 
-    init(operations: FileOperations, destination: String, overwrite: Bool) {
+    /// Into a directory the caller holds open, and keeps.
+    init(operations: FileOperations, directory: Int32, path: String, overwrite: Bool) throws {
+        root = try filaCheck(path) { fcntl(directory, F_DUPFD_CLOEXEC, 0) }
         self.operations = operations
-        self.destination = destination
+        destination = path
         self.overwrite = overwrite
     }
 
-    /// The destination itself, once and not per entry: a missing parent above
-    /// it is one honest failure rather than one per member.
-    func prepare() throws {
-        if try makeDirectory(destination) {
-            created.insert(destination)
+    /// Into the destination the user named, made first when it is missing:
+    /// once and not per entry, so a missing parent above it is one honest
+    /// failure rather than one per member.
+    convenience init(operations: FileOperations, creating destination: String, overwrite: Bool) throws {
+        do {
+            try operations.create(.directory, at: destination)
+        } catch let failure as FilaFailure where failure.systemError == EEXIST {}
+        let resolved = try FilaPath.resolve(destination)
+        let descriptor = try operations.open(resolved, flags: O_RDONLY | O_DIRECTORY | O_NOFOLLOW, mode: 0)
+        defer { close(descriptor) }
+        try self.init(operations: operations, directory: descriptor, path: resolved, overwrite: overwrite)
+    }
+
+    deinit {
+        if let recent {
+            close(recent.descriptor)
         }
-        verified.insert(destination)
+        close(root)
     }
 
     func place(_ entry: ArchiveEntry, from reader: ArchiveReader, progress: @escaping ProgressHandler) throws {
         guard let relative = entry.relativePath else { throw Skipped(reason: "it points outside the destination") }
         guard entry.hardLinkTarget == nil else { throw Skipped(reason: "it is a hard link") }
         try refuseAPathThroughAPlantedLink(relative)
-        let target = FilaPath.join(destination, relative)
+        // Descriptors reach deeper than `PATH_MAX`; nothing that names a file
+        // by its path — the browser, delete, the guard — could reach it after.
+        guard FilaPath.join(destination, relative).utf8.count < MAXPATHLEN else {
+            throw failure(ENAMETOOLONG, relative)
+        }
 
         switch entry.kind {
         case .directory:
-            try makeDirectories(relative)
-            if created.contains(target) {
-                directoryPermissions[target] = entry.permissions
+            _ = try directory(relative)
+            if created.contains(relative) {
+                directoryPermissions[relative] = entry.permissions
             }
 
         case .symbolicLink:
             guard let linkTarget = entry.linkTarget, !linkTarget.isEmpty else {
                 throw Skipped(reason: "it is a symbolic link with no target")
             }
-            try makeDirectories(parent(of: relative))
-            guard overwrite || !filaExists(target)
+            let (parent, name) = try self.parent(of: relative)
+            guard try overwrite || existing(name, in: parent, relative) == nil
             else { throw Skipped(reason: "an item with that name already exists") }
-            try operations.create(.symbolicLink(target: linkTarget), at: target, mode: entry.permissions)
+            try link(to: linkTarget, named: name, in: parent, relative)
             planted.insert(relative)
 
         case .regular:
-            try makeDirectories(parent(of: relative))
-            guard overwrite || !filaExists(target)
+            let (parent, name) = try self.parent(of: relative)
+            guard try overwrite || existing(name, in: parent, relative) == nil
             else { throw Skipped(reason: "an item with that name already exists") }
-            try write(from: reader, to: target, permissions: entry.permissions, progress: progress)
+            try write(from: reader, named: name, in: parent, relative, permissions: entry.permissions, progress: progress)
 
         // A fifo, a socket or a device node is a thing a tar can carry and a
         // file manager has no business creating.
@@ -463,20 +502,42 @@ private final class Placement {
 
     /// Read-only directory modes are applied after their children, deepest
     /// first. Existing destination directories keep their own permissions.
-    func finish() throws {
-        for path in directoryPermissions.keys.sorted(by: { $0.count > $1.count }) {
-            try operations.setAttributes(AttributeChange(mode: directoryPermissions[path]!), at: path)
+    ///
+    /// With `deferringTopLevel`, the modes of directories directly under the
+    /// destination come back instead, for the caller to apply once it has
+    /// moved them.
+    func finish(deferringTopLevel: Bool = false) throws -> [String: mode_t] {
+        var deferred: [String: mode_t] = [:]
+        for (relative, mode) in directoryPermissions.sorted(by: { $0.key.count > $1.key.count }) {
+            if deferringTopLevel, !relative.utf8.contains(UInt8(ascii: "/")) {
+                deferred[relative] = mode
+                continue
+            }
+            let descriptor = try directory(relative, creating: false)
+            try check(relative) { fchmod(descriptor, mode) }
         }
+        return deferred
     }
 
-    private func parent(of relative: String) -> String {
-        relative.split(separator: "/").dropLast().joined(separator: "/")
+    /// The directory a member goes into, open, and the member's own name.
+    private func parent(of relative: String) throws -> (descriptor: Int32, name: String) {
+        var components = ArchivePath.components(of: relative)
+        let name = try component(components.removeLast())
+        return try (directory(components.joined(separator: "/")), name)
+    }
+
+    /// Every name an `*at` call is given is one component. `relativePath`
+    /// already guarantees that; this is the second fence, at the call, because
+    /// a name with a `/` byte in it goes wherever its `..` says.
+    private func component(_ name: String) throws -> String {
+        guard ArchivePath.isComponent(name) else { throw Skipped(reason: "it points outside the destination") }
+        return name
     }
 
     private func refuseAPathThroughAPlantedLink(_ relative: String) throws {
         guard !planted.isEmpty else { return }
         var ancestor = ""
-        for component in relative.split(separator: "/").dropLast() {
+        for component in ArchivePath.components(of: relative).dropLast() {
             ancestor = ancestor.isEmpty ? String(component) : ancestor + "/" + component
             guard !planted.contains(ancestor) else {
                 throw Skipped(reason: "it would be written through a symbolic link in the archive")
@@ -488,66 +549,160 @@ private final class Placement {
     /// in, so a member that fails halfway never replaces what was there.
     private func write(
         from reader: ArchiveReader,
-        to target: String,
+        named name: String,
+        in parent: Int32,
+        _ relative: String,
         permissions: mode_t,
         progress: @escaping ProgressHandler,
     ) throws {
-        let temporary = FilaPath.join(FilaPath.directory(of: target), ".fila-tmp-\(UUID().uuidString)")
-        let descriptor = try operations.open(temporary, flags: O_CREAT | O_EXCL | O_WRONLY, mode: 0o600)
+        let temporary = ".fila-tmp-\(UUID().uuidString)"
+        let descriptor = try check(relative) {
+            openat(parent, temporary, O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        }
+        defer { close(descriptor) }
         do {
-            defer { close(descriptor) }
             try reader.read(into: descriptor, progress: progress)
-            try filaCheck(temporary) { fchmod(descriptor, permissions) }
-            try synchronize(descriptor, path: temporary)
+            // Owner before mode: chown clears setuid and setgid.
+            try check(relative) { fchown(descriptor, owner.ownerID ?? geteuid(), owner.groupID ?? getegid()) }
+            try check(relative) { fchmod(descriptor, permissions) }
+            try synchronize(descriptor, path: ArchivePath.displayName(FilaPath.join(destination, relative)))
+            try publish(temporary, as: name, in: parent, relative, file: descriptor)
         } catch {
-            unlink(temporary)
-            throw error
-        }
-        do {
-            if overwrite {
-                try operations.replaceItem(at: target, withTemporary: temporary, permissions: permissions)
-            } else {
-                try operations.rename(temporary, to: target, exclusive: true)
-            }
-        } catch {
-            unlink(temporary)
+            unlinkat(parent, temporary, 0)
             throw error
         }
     }
 
-    /// Every missing component of `relative` under the destination. An
-    /// archive is under no obligation to list its directories at all, let
-    /// alone before the files inside them.
-    private func makeDirectories(_ relative: String) throws {
-        var path = destination
-        for component in relative.split(separator: "/") {
-            path = FilaPath.join(path, String(component))
-            guard !verified.contains(path) else { continue }
-            if try makeDirectory(path) {
-                created.insert(path)
-            } else {
-                try refuseANonDirectory(at: path)
-            }
-            verified.insert(path)
-        }
-    }
-
-    /// EEXIST is the common case — most entries share a parent — and is not
-    /// a failure; anything else is.
-    private func makeDirectory(_ path: String) throws -> Bool {
+    /// A link is made under a temporary name too, so replacing one is the
+    /// same rename that replaces a file rather than a create that cannot.
+    private func link(to target: String, named name: String, in parent: Int32, _ relative: String) throws {
+        let temporary = ".fila-tmp-\(UUID().uuidString)"
+        try check(relative) { symlinkat(target, parent, temporary) }
         do {
-            try operations.create(.directory, at: path, mode: 0o755)
-            return true
-        } catch let failure as FilaFailure where failure.systemError == EEXIST {
-            return false
+            try check(relative) {
+                fchownat(parent, temporary, owner.ownerID ?? geteuid(), owner.groupID ?? getegid(), AT_SYMLINK_NOFOLLOW)
+            }
+            try publish(temporary, as: name, in: parent, relative, file: nil)
+        } catch {
+            unlinkat(parent, temporary, 0)
+            throw error
         }
     }
 
-    /// What `EEXIST` does not say: whether the thing already there is a
-    /// directory or a symlink pointing out of the destination entirely.
-    private func refuseANonDirectory(at path: String) throws {
-        guard try operations.details(of: path).node.kind != .directory else { return }
-        throw Skipped(reason: "“\(path)” already exists and is not a folder")
+    /// Gives a finished temporary its name.
+    ///
+    /// Without `overwrite`, `RENAME_EXCL` refuses a name taken since the
+    /// check before the member was read, and the member is skipped like any
+    /// other collision. With it, the rename replaces what is there: never a
+    /// folder, only after the guard, and a file keeps the owner, ACL,
+    /// extended attributes and flags of the one it replaces, as a save does.
+    private func publish(_ temporary: String, as name: String, in parent: Int32, _ relative: String, file: Int32?) throws {
+        guard overwrite, let original = try existing(name, in: parent, relative) else {
+            guard renameatx_np(parent, temporary, parent, name, UInt32(RENAME_EXCL)) == 0 else {
+                guard errno == EEXIST else { throw failure(errno, relative) }
+                throw Skipped(reason: "an item with that name already exists")
+            }
+            return
+        }
+        guard original.st_mode & S_IFMT != S_IFDIR else { throw failure(EISDIR, relative) }
+        _ = try operations.resolveForDestruction(FilaPath.join(destination, relative))
+        if let file, original.st_mode & S_IFMT == S_IFREG {
+            let previous = try check(relative) { openat(parent, name, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC) }
+            defer { close(previous) }
+            try check(relative) { fcopyfile(previous, file, nil, copyfile_flags_t(COPYFILE_ACL | COPYFILE_XATTR)) }
+            try check(relative) { fchown(file, original.st_uid, original.st_gid) }
+        }
+        try check(relative) { renameat(parent, temporary, parent, name) }
+        // After the rename: `uchg` on the temporary would refuse it.
+        if let file, original.st_flags != 0 {
+            try check(relative) { fchflags(file, original.st_flags) }
+        }
+    }
+
+    /// What is at `name` now, without following it; nil when nothing is.
+    private func existing(_ name: String, in parent: Int32, _ relative: String) throws -> stat? {
+        var metadata = stat()
+        guard fstatat(parent, name, &metadata, AT_SYMLINK_NOFOLLOW) == 0 else {
+            guard errno == ENOENT else { throw failure(errno, relative) }
+            return nil
+        }
+        return metadata
+    }
+
+    /// The directory `relative` names, opened from the destination one
+    /// component at a time and made where missing — an archive is under no
+    /// obligation to list its directories at all, let alone before the files
+    /// inside them. The descriptor is borrowed until the next call.
+    private func directory(_ relative: String, creating: Bool = true) throws -> Int32 {
+        guard !relative.isEmpty else { return root }
+        if let recent, recent.relative == relative {
+            return recent.descriptor
+        }
+        var current = root
+        var walked = ""
+        do {
+            for component in ArchivePath.components(of: relative) {
+                walked = walked.isEmpty ? component : walked + "/" + component
+                let next = try child(component, of: current, walked, creating: creating)
+                if current != root {
+                    close(current)
+                }
+                current = next
+            }
+        } catch {
+            if current != root {
+                close(current)
+            }
+            throw error
+        }
+        if let recent {
+            close(recent.descriptor)
+        }
+        recent = (relative, current)
+        return current
+    }
+
+    /// `mkdir(2)` answers `EEXIST` for a directory and for a link to one
+    /// alike, and the difference is the whole attack: `O_NOFOLLOW` on the
+    /// open is what tells them apart.
+    private func child(_ name: String, of parent: Int32, _ relative: String, creating: Bool) throws -> Int32 {
+        let name = try component(name)
+        var made = false
+        if creating {
+            if mkdirat(parent, name, 0o755) == 0 {
+                made = true
+            } else if errno != EEXIST {
+                throw failure(errno, relative)
+            }
+        }
+        let descriptor = openat(parent, name, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        guard descriptor >= 0 else {
+            let code = errno
+            guard code == ENOTDIR || code == ELOOP else { throw failure(code, relative) }
+            throw Skipped(reason: "“\(ArchivePath.displayName(relative))” already exists and is not a folder")
+        }
+        if made {
+            created.insert(relative)
+            guard fchown(descriptor, owner.ownerID ?? geteuid(), owner.groupID ?? getegid()) == 0 else {
+                let code = errno
+                close(descriptor)
+                throw failure(code, relative)
+            }
+        }
+        return descriptor
+    }
+
+    /// Failures name the member by its display form: the whole name may be
+    /// longer than anything a report should carry.
+    private func failure(_ code: Int32, _ relative: String) -> FilaFailure {
+        FilaFailure(errno: code, path: ArchivePath.displayName(FilaPath.join(destination, relative)))
+    }
+
+    @discardableResult
+    private func check(_ relative: String, _ body: () -> Int32) throws -> Int32 {
+        let result = body()
+        guard result >= 0 else { throw failure(errno, relative) }
+        return result
     }
 }
 

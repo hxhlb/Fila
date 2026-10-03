@@ -150,4 +150,30 @@ struct TerminalPTYTests {
         pty.close()
         #expect(ended.wait(timeout: .now() + 10) == .success)
     }
+
+    @Test
+    func `closing the pump lets go of what its output handler holds`() throws {
+        // A handler that holds the terminal's session would keep it alive for
+        // as long as anything still holds the pump after `close` — its own
+        // sources, until they finish, or an owner torn down only by deinit.
+        final class Captured: Sendable {}
+        var pair: [Int32] = [0, 0]
+        try #require(socketpair(AF_UNIX, SOCK_STREAM, 0, &pair) == 0)
+        defer { Darwin.close(pair[1]) }
+        let pty = TerminalPTY(descriptor: pair[0])
+        weak var held: Captured?
+        do {
+            let captured = Captured()
+            held = captured
+            pty.onOutput = { _ in _ = captured }
+        }
+        pty.start()
+        pty.close()
+        let deadline = Date().addingTimeInterval(5)
+        while held != nil, Date() < deadline {
+            usleep(10000)
+        }
+        #expect(held == nil)
+        withExtendedLifetime(pty) {}
+    }
 }

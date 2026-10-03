@@ -36,6 +36,53 @@
         }
 
         @Test
+        func `A cursor from a daemon that has since been replaced counts from the start`() {
+            // The new `filad` numbers its lines from 1 again. Paging past the
+            // old one's last line would hide everything it has said — the
+            // lines that explain why it was restarted among them.
+            let stale = xpc_dictionary_create(nil, nil, 0)
+            FilaLog.Record.encodeRequest(since: 900, level: .info, instance: "an earlier filad", into: stale)
+            #expect(FilaLog.Record.decodeRequest(stale).sequence == 0)
+
+            let current = xpc_dictionary_create(nil, nil, 0)
+            FilaLog.Record.encodeRequest(since: 900, level: .info, instance: FilaLog.instance, into: current)
+            #expect(FilaLog.Record.decodeRequest(current).sequence == 900)
+
+            // An app that predates the field pages by the cursor, as it always did.
+            let older = xpc_dictionary_create(nil, nil, 0)
+            FilaLog.Record.encodeRequest(since: 900, level: .info, into: older)
+            #expect(FilaLog.Record.decodeRequest(older).sequence == 900)
+        }
+
+        @Test
+        func `A reply names the daemon that wrote it`() {
+            let reply = xpc_dictionary_create(nil, nil, 0)
+            FilaLog.Record.encodeReply([], dropped: 0, into: reply)
+            #expect(FilaLog.Record.decodeReply(reply).instance == FilaLog.instance)
+
+            // A daemon that predates the field says nothing, and nothing is read.
+            let older = xpc_dictionary_create(nil, nil, 0)
+            xpc_dictionary_set_uint64(older, FilaWireKey.logDropped, 3)
+            #expect(FilaLog.Record.decodeReply(older).instance == nil)
+            #expect(FilaLog.Record.decodeReply(older).dropped == 3)
+        }
+
+        @Test
+        func `A record that is not a dictionary is skipped, not fatal`() {
+            // libxpc kills the process for a dictionary accessor on anything else.
+            let reply = xpc_dictionary_create(nil, nil, 0)
+            FilaLog.Record.encodeReply(
+                [FilaLog.Record(sequence: 1, time: 1, level: .info, source: .daemon, message: "kept")],
+                dropped: 0,
+                into: reply,
+            )
+            let records = xpc_dictionary_get_value(reply, FilaWireKey.logRecords)!
+            xpc_array_set_string(records, FilaXPC.arrayAppend, "not a record")
+
+            #expect(FilaLog.Record.decodeReply(reply).records.map(\.message) == ["kept"])
+        }
+
+        @Test
         func `Records survive the round trip whole`() {
             let records = [
                 FilaLog.Record(sequence: 1, time: 1_756_000_000.25, level: .verbose, source: .daemon, message: "list /"),

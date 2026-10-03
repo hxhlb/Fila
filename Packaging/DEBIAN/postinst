@@ -19,6 +19,17 @@ find_tool() {
 # handed the wrong label and its errors are no longer silenced.
 label=wiki.qaq.filad
 launch_plist="@PREFIX@/Library/LaunchDaemons/$label.plist"
+
+# Whether launchd holds the daemon in any domain it can land in.
+loaded() {
+    for domain in system user/501 gui/501; do
+        if "$launchctl" print "$domain/$label" >/dev/null 2>&1; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 if launchctl="$(find_tool launchctl)"; then
     # Roothide's launchctl can land a jbroot daemon in the per-user domain
     # even when asked for system. An upgrade that only boots out system/
@@ -27,7 +38,42 @@ if launchctl="$(find_tool launchctl)"; then
     "$launchctl" bootout "user/501/$label" 2>/dev/null || true
     "$launchctl" bootout "gui/501/$label" 2>/dev/null || true
     "$launchctl" enable "system/$label" 2>/dev/null || true
-    "$launchctl" bootstrap system "$launch_plist"
+    # A bootout returns before an instance that is finishing a job or reaping
+    # a terminal has exited, and a bootstrap that races the teardown fails
+    # ("Bootstrap failed: 5"). Nothing loads the daemon again until the next
+    # jailbreak, and the app says Connecting… for ever, so the old instance
+    # is waited out first, the bootstrap is retried for a while, and a
+    # configure that could not load it fails.
+    waited=0
+    while loaded && [ "$waited" -lt 15 ]; do
+        waited=$((waited + 1))
+        sleep 1 2>/dev/null || true
+    done
+    # Once the old instance is gone, a label that is loaded after a failed
+    # bootstrap can only be this one's: roothide's launchctl may load it in
+    # the per-user domain and still exit non-zero. While the old one is
+    # still there, only the last attempt may take its word for it.
+    if loaded; then
+        old_instance=present
+    else
+        old_instance=gone
+    fi
+    attempt=1
+    while ! failure="$("$launchctl" bootstrap system "$launch_plist" 2>&1 >/dev/null)"; do
+        if [ "$old_instance" = gone ] && loaded; then
+            exit 0
+        fi
+        if [ "$attempt" -ge 15 ]; then
+            if loaded; then
+                exit 0
+            fi
+            echo "error: $label could not be loaded: ${failure:-launchctl gave no reason}" >&2
+            echo "Run: launchctl bootstrap system $launch_plist" >&2
+            exit 1
+        fi
+        attempt=$((attempt + 1))
+        sleep 1 2>/dev/null || true
+    done
 fi
 
 exit 0

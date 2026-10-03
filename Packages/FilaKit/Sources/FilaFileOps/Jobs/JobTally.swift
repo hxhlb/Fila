@@ -74,6 +74,16 @@ final class JobTally {
         failure = FilaFailure(errno: code == 0 ? EIO : code, path: path)
     }
 
+    /// A copy's failure, named by the side it is about. `copyfile(3)` does
+    /// not say which end failed, but some errnos can only be the end being
+    /// written: a read-only volume, or one without room.
+    func recordCopyFailure(source: String?, destination: String?) {
+        guard failure == nil else { return }
+        let code = Darwin.errno
+        let errno = code == 0 ? EIO : code
+        failure = FilaFailure(errno: errno, path: filaFailsWriting(errno) ? destination ?? source : source)
+    }
+
     func recordFailure(_ failure: FilaFailure) {
         if self.failure == nil {
             self.failure = failure
@@ -100,6 +110,12 @@ final class JobTally {
     }
 }
 
+/// Whether a failed copy's `errno` can only be about the destination: the
+/// source is only ever read, and these refuse a write.
+func filaFailsWriting(_ code: Int32) -> Bool {
+    code == EROFS || code == ENOSPC || code == EDQUOT
+}
+
 /// `copyfile(3)`'s state callback: progress on the way past, and the one place
 /// a cancellation can take effect.
 let filaCopyProgress: copyfile_callback_t = { what, stage, state, source, destination, context in
@@ -114,7 +130,10 @@ let filaCopyProgress: copyfile_callback_t = { what, stage, state, source, destin
     // An error stage stops the walk. Answering CONTINUE here is what turns a
     // partial copy into a reported success — see `JobTally.failure`.
     if stage == COPYFILE_ERR || what == COPYFILE_RECURSE_ERROR {
-        tally.recordFailure(source.map { String(cString: $0) })
+        tally.recordCopyFailure(
+            source: source.map { String(cString: $0) },
+            destination: destination.map { String(cString: $0) },
+        )
         return COPYFILE_QUIT
     }
 

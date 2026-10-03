@@ -52,8 +52,8 @@ public struct ArchiveEntry: Sendable, Hashable {
 
     /// A tar's explicit `.` entry describes the extraction root, not a child.
     public var isRootDirectory: Bool {
-        isDirectory && !declaredPath.isEmpty && !declaredPath.hasPrefix("/")
-            && declaredPath.split(separator: "/").allSatisfy { $0 == "." }
+        isDirectory && !declaredPath.isEmpty && declaredPath.utf8.first != UInt8(ascii: "/")
+            && ArchivePath.components(of: declaredPath).allSatisfy { $0.utf8.elementsEqual(".".utf8) }
     }
 
     public var isFinderMetadata: Bool {

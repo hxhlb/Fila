@@ -181,7 +181,14 @@
         }
 
         init?(decoding request: xpc_object_t) {
-            let kind = FileKind(rawValue: xpc_dictionary_get_uint64(request, FilaWireKey.nodeKind)) ?? .unknown
+            // `.unknown` is the hard-link marker, so it has to be said: a
+            // kind that is missing, of another type or not one this build
+            // knows reads as zero or as nothing, and either would otherwise
+            // turn "make this" into "link this path".
+            guard let value = xpc_dictionary_get_value(request, FilaWireKey.nodeKind),
+                  xpc_get_type(value) == FilaXPC.typeUInt64,
+                  let kind = FileKind(rawValue: xpc_uint64_get_value(value))
+            else { return nil }
             let target = xpc_dictionary_get_string(request, FilaWireKey.linkTarget).map { String(cString: $0) }
             switch kind {
             case .directory: self = .directory
@@ -241,6 +248,17 @@
             func optionalDouble(_ key: String) -> Double? {
                 xpc_dictionary_get_value(dictionary, key) == nil ? nil : xpc_dictionary_get_double(dictionary, key)
             }
+            // A time is a `Double` here and a `time_t` in the kernel, and the
+            // conversion between them traps on anything that is not a finite
+            // number inside `Int64` — NaN, infinity, 1e19. Such a request is
+            // refused at the door rather than taking the daemon down in
+            // `utimes`, and so is a time that is not a double at all.
+            func isTime(_ key: String) -> Bool {
+                guard let value = xpc_dictionary_get_value(dictionary, key) else { return true }
+                return xpc_get_type(value) == FilaXPC.typeDouble
+                    && Int64(exactly: xpc_double_get_value(value).rounded(.down)) != nil
+            }
+            guard isTime(ChangeKey.modified), isTime(ChangeKey.accessed) else { return nil }
 
             var attribute: (name: String, value: Data?)?
             if let name = xpc_dictionary_get_string(dictionary, ChangeKey.xattrName) {

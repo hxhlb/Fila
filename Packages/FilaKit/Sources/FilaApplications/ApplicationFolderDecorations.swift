@@ -1,5 +1,6 @@
 import FilaBackendKit
 import FilaClient
+import FilaProtocol
 import Foundation
 
 /// Names and artwork identities for the directories apps own: their
@@ -27,12 +28,13 @@ public enum ApplicationFolderDecorations {
 
     /// Decorations for the directories in `directory`, keyed by entry name.
     /// `read` fetches a small file — a container's metadata plist — as the
-    /// local layer opens it, root-owned or not.
+    /// local layer opens it, root-owned or not, and throws the layer's
+    /// `FilaFailure` when it cannot.
     static func load(
         in directory: String,
         entries: [(name: String, isDirectory: Bool)],
         apps: [InstalledApp],
-        read: (String) async -> Data?,
+        read: (String) async throws -> Data,
     ) async -> [String: FolderDecoration] {
         guard decorates(directory, entries: entries) else { return [:] }
         let root = displayPath(directory)
@@ -68,16 +70,32 @@ public enum ApplicationFolderDecorations {
     /// `MCMMetadataIdentifier` from the container manager's own record inside
     /// the directory: the bundle identifier for a data container, the group
     /// identifier for a shared one. Small: a few hundred bytes.
-    private static func containerIdentifier(at path: String, read: (String) async -> Data?) async -> String? {
+    ///
+    /// An answer is kept: what the file says, with or without an identifier
+    /// in it, and a refusal that will not change — no such file, not a
+    /// directory, not permitted — which every listing of the container root
+    /// would otherwise ask the filesystem again. A read that failed for any
+    /// other reason — the daemon restarting, an open that lost a race — says
+    /// nothing about the container, and the next listing asks again rather
+    /// than leaving it unnamed for the session.
+    private static func containerIdentifier(at path: String, read: (String) async throws -> Data) async -> String? {
         if let cached = identifiers[path] {
             return cached
         }
         let metadata = path + "/.com.apple.mobile_container_manager.metadata.plist"
-        let identifier: String? = await {
-            guard let data = await read(metadata),
-                  let plist = try? PropertyListSerialization
-                  .propertyList(from: data, options: [], format: nil) as? [String: Any],
-                  let identifier = plist["MCMMetadataIdentifier"] as? String, !identifier.isEmpty else { return nil }
+        let data: Data
+        do {
+            data = try await read(metadata)
+        } catch let failure as FilaFailure where [ENOENT, ENOTDIR, EACCES, EPERM].contains(failure.systemError) {
+            identifiers[path] = .some(nil)
+            return nil
+        } catch {
+            return nil
+        }
+        let identifier: String? = {
+            guard let plist = try? PropertyListSerialization
+                .propertyList(from: data, options: [], format: nil) as? [String: Any],
+                let identifier = plist["MCMMetadataIdentifier"] as? String, !identifier.isEmpty else { return nil }
             return identifier
         }()
         identifiers[path] = .some(identifier)

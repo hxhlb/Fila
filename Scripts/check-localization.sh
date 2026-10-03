@@ -48,7 +48,23 @@ done < <(find "$root/Fila" "$root/Frameworks" "$root/Packages" "$root/FilaArchiv
 # English everywhere. The same labels on a plain-`String` API (UIAction,
 # UIMenu) are not localized at all, which is the same bug wearing a different
 # hat, so both are reported.
+#
+# Every root that can show a card is read — the app, the module frameworks,
+# the UIKit package modules and the share extension — and a file is chosen
+# by what it builds, not by its import line: a module reaches AlertController
+# through FilaCore's re-exports and never imports it by name.
 labels='title|message|placeholder|cancelButtonText|doneButtonText'
+alert_roots=(
+    "$root/Fila"
+    "$root/Frameworks"
+    "$root/FilaSaveAction"
+    "$root/Packages/FilaKit/Sources/FilaBackendUI"
+    "$root/Packages/FilaKit/Sources/FilaApplications"
+    "$root/Packages/FilaKit/Sources/FilaMusicLibrary"
+    "$root/Packages/FilaKit/Sources/FilaSMB"
+    "$root/Packages/FilaKit/Sources/FilaTerminal"
+)
+alert_uses='^import AlertController|AlertViewController\(|AlertInputViewController\(|addAction\(title:'
 while IFS= read -r hit; do
     [ -n "$hit" ] || continue
     error "$hit
@@ -56,7 +72,7 @@ while IFS= read -r hit; do
     Write String.LocalizationValue(\"...\") for an AlertController argument,
     or String(localized: \"...\") for a plain String one."
 done < <(
-    grep -rlE --include='*.swift' '^import AlertController' "$root/Fila" 2>/dev/null |
+    grep -rlE --include='*.swift' "$alert_uses" "${alert_roots[@]}" 2>/dev/null |
         xargs grep -nE "(^|[( ])($labels): \"[^\"]" 2>/dev/null |
         sed "s|^$root/||" || true
 )

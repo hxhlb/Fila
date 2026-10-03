@@ -12,6 +12,9 @@ struct FileArrangement: Sendable {
     /// Names being deleted or put back: gone from the list from the tap on,
     /// whatever a listing read while the job ran.
     var excluded: Set<String> = []
+    /// Hidden names shown anyway: what a `fila://reveal` link pointed at, in
+    /// this folder only. A link never changes the stored preference.
+    var revealed: Set<String> = []
 
     func arrange(_ nodes: [FileNode]) -> [FileNode] {
         // Deduplicated by name: pages are read from a directory that is live,
@@ -20,7 +23,7 @@ struct FileArrangement: Sendable {
         var seen = excluded
         var items = nodes.filter { seen.insert($0.name).inserted }
         if !showsHidden {
-            items.removeAll(where: \.isHidden)
+            items.removeAll { $0.isHidden && !revealed.contains($0.name) }
         }
         return items.sorted(by: precedes)
     }

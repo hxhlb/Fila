@@ -24,6 +24,15 @@ struct ServicePathTests {
         #expect(throws: ServicePathError.emptyComponent) { try ServicePath("a//b") }
         #expect(throws: ServicePathError.separatorInComponent("a/b")) { try ServicePath(components: ["a/b"]) }
         #expect(throws: ServicePathError.nulInComponent) { try ServicePath.root.appending("a\0b") }
+        // "/" plus a combining mark is one Character but still a separator.
+        #expect(throws: ServicePathError.separatorInComponent("a/\u{301}b")) { try ServicePath(components: ["a/\u{301}b"]) }
+    }
+
+    @Test
+    func `A name that starts with a combining mark is a name of its own`() throws {
+        let path = try ServicePath("/var/mobile/\u{301}x/y")
+        #expect(path.components == ["var", "mobile", "\u{301}x", "y"])
+        #expect(try ServicePath(path.description) == path)
     }
 
     @Test

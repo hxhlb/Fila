@@ -33,7 +33,7 @@ final class WebDAVFileService: RemoteFileService {
     }
 
     func setAttributes(_ change: AttributeChange, at path: String) async throws {
-        try await FileSession.shared.perform { try await $0.setAttributes(change, at: path) }
+        _ = try await FileSession.shared.perform { try await $0.setAttributes(change, at: path) }
     }
 
     func rename(_ source: String, to destination: String, exclusive: Bool) async throws {

@@ -48,25 +48,29 @@ public struct FileOperations: Sendable {
         let resolved = try FilaPath.canonical(path)
         if let writableRoot {
             let root = try FilaPath.resolve(writableRoot)
-            let rootComponents = URL(fileURLWithPath: root).pathComponents
-            let components = URL(fileURLWithPath: resolved).pathComponents
-            guard components.starts(with: rootComponents) else {
+            // Components split on the separator byte, like the kernel's.
+            guard resolved == root || FilaGuard.isAncestor(root, of: resolved) else {
                 throw FilaFailure(errno: EROFS, path: resolved)
             }
             if changesInode {
-                // A second name could be outside the root. Directory-entry
-                // changes remain safe, but bytes and attributes are shared.
                 var metadata = stat()
                 if lstat(resolved, &metadata) == 0 {
-                    guard metadata.st_mode & S_IFMT == S_IFDIR || metadata.st_nlink <= 1 else {
-                        throw FilaFailure(errno: EROFS, path: resolved)
-                    }
+                    try requireUnshared(metadata, path: resolved)
                 } else if Darwin.errno != ENOENT {
                     throw FilaFailure(errno: Darwin.errno, path: resolved)
                 }
             }
         }
         return resolved
+    }
+
+    /// Under a writable root, a node whose bytes or attributes are about to
+    /// change must have no second name: that name could be outside the root.
+    /// Directory-entry changes remain safe, but bytes and attributes are shared.
+    func requireUnshared(_ metadata: stat, path: String) throws {
+        guard writableRoot == nil || metadata.st_mode & S_IFMT == S_IFDIR || metadata.st_nlink <= 1 else {
+            throw FilaFailure(errno: EROFS, path: path)
+        }
     }
 
     /// Canonicalise, then refuse if the guard says this node may not be

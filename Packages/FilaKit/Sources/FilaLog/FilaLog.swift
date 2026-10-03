@@ -131,6 +131,13 @@ public enum FilaLog {
 
     private static let state = State()
 
+    /// Names this run of this process. A record's `sequence` starts again at 1
+    /// in every process, so a cursor is only meaningful together with the
+    /// instance it was read from: a viewer polling a `filad` that launchd has
+    /// since replaced would otherwise ask the new one for lines after the old
+    /// one's last, and be shown nothing until it caught up.
+    public static let instance = UUID().uuidString
+
     /// Names this process and sizes its ring. Call once, first thing:
     /// `FilaLog.start(.app)` from the app delegate, `FilaLog.start(.daemon)`
     /// from `filad`'s `main`. Lines written before it are kept — they just

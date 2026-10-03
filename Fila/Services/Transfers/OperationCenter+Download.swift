@@ -52,7 +52,7 @@ extension OperationCenter {
         // half of the bug; the invisible half is that it holds the bytes.
         do {
             try await DescriptorIO.blocking { try DescriptorIO.copyAndClose(descriptor, from: file, isCancelled: $0) }
-            try await session.perform { try await $0.setAttributes(.newItemDefaults, at: temporary) }
+            _ = try await session.perform { try await $0.setAttributes(.newItemDefaults, at: temporary) }
             try await claim(temporary, named: file.lastPathComponent, in: directory)
         } catch {
             await session.discardTemporary(temporary)

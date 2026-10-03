@@ -88,4 +88,69 @@ struct NodeFactoryTests {
         #expect(!exists(source))
         #expect(metadata(of: scratch.path("moved.txt"))?.st_size == 5)
     }
+
+    /// POSIX `rename(2)` between two names of one file succeeds and changes
+    /// nothing, so a Replace the user confirmed reported success and left
+    /// both names in place.
+    @Test
+    func `Replacing a second name of the same file leaves only the destination`() throws {
+        let source = scratch.file("h1.txt", contents: "shared")
+        #expect(Darwin.link(source, scratch.path("h2.txt")) == 0)
+
+        try operations.rename(source, to: scratch.path("h2.txt"))
+        #expect(!exists(source))
+        #expect(metadata(of: scratch.path("h2.txt"))?.st_nlink == 1)
+        #expect(metadata(of: scratch.path("h2.txt"))?.st_size == 6)
+    }
+
+    /// The same entry spelled with other case is the kernel's to rename on a
+    /// case-insensitive volume, and must not be mistaken for a second name.
+    @Test
+    func `A case-only rename of a hard-linked file keeps the file`() throws {
+        let source = scratch.file("Case.txt", contents: "shared")
+        #expect(Darwin.link(source, scratch.path("elsewhere.txt")) == 0)
+
+        try operations.rename(source, to: scratch.path("case.txt"))
+        let names = try FileManager.default.contentsOfDirectory(atPath: scratch.root)
+        #expect(names.contains("case.txt") || names.contains("Case.txt"))
+        #expect(metadata(of: scratch.path("case.txt"))?.st_nlink == 2)
+    }
+
+    /// APFS folds case pairs Foundation's comparison calls different — the
+    /// Deseret letters — so the two spellings are one entry, and the file's
+    /// only name must survive a confirmed Replace between them.
+    @Test(.enabled(if: filaTemporaryVolumeFoldsDeseret, "the host's temporary volume is case-sensitive"))
+    func `A rename between spellings the volume folds keeps the file's only name`() throws {
+        let source = scratch.file("\u{10400}notes", contents: "only")
+
+        try operations.rename(source, to: scratch.path("\u{10428}notes"))
+        #expect(try String(contentsOfFile: scratch.path("\u{10428}notes"), encoding: .utf8) == "only")
+        #expect(try FileManager.default.contentsOfDirectory(atPath: scratch.root).count == 1)
+    }
+
+    /// The same, with a second name elsewhere: a link count above one does
+    /// not make two spellings of one entry into two entries.
+    @Test(.enabled(if: filaTemporaryVolumeFoldsDeseret, "the host's temporary volume is case-sensitive"))
+    func `A rename between folded spellings of a hard-linked file keeps both names`() throws {
+        let source = scratch.file("\u{10400}shared", contents: "shared")
+        #expect(Darwin.link(source, scratch.path("elsewhere.txt")) == 0)
+
+        try operations.rename(source, to: scratch.path("\u{10428}shared"))
+        #expect(metadata(of: scratch.path("\u{10428}shared"))?.st_nlink == 2)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: scratch.root).count == 2)
+    }
 }
+
+/// Whether the host's temporary volume folds the Deseret capital and small
+/// letters into one entry, as a case-insensitive APFS volume does.
+let filaTemporaryVolumeFoldsDeseret: Bool = {
+    let folder = NSTemporaryDirectory() + "fila-fold-" + UUID().uuidString
+    guard mkdir(folder, 0o700) == 0 else { return false }
+    defer { rmdir(folder) }
+    let descriptor = open(folder + "/\u{10400}", O_CREAT | O_EXCL | O_WRONLY, 0o600)
+    guard descriptor >= 0 else { return false }
+    close(descriptor)
+    defer { unlink(folder + "/\u{10400}") }
+    var status = stat()
+    return lstat(folder + "/\u{10428}", &status) == 0
+}()

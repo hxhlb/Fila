@@ -210,8 +210,13 @@ public final class LocalFileService: LocalFileAccess, @unchecked Sendable {
         }
     }
 
-    public func setAttributes(_ change: AttributeChange, at path: String) async throws {
-        try await run("setAttributes \(path)") { try self.operations.setAttributes(change, at: path) }
+    @discardableResult
+    public func setAttributes(_ change: AttributeChange, at path: String) async throws -> AttributeOutcome {
+        let outcome = try await run("setAttributes \(path)") { try self.operations.setAttributes(change, at: path) }
+        if outcome.unchangedSharedFiles > 0 {
+            FilaLog.warning("\(outcome.unchangedSharedFiles) hard-linked file(s) beneath \(path) left unchanged")
+        }
+        return outcome
     }
 
     public func replaceItem(at target: String, withTemporary temporary: String) async throws {

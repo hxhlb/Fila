@@ -275,3 +275,19 @@ public struct AttributeChange: Sendable, Hashable {
         hasher.combine(isRecursive)
     }
 }
+
+/// What an `AttributeChange` left undone on purpose.
+///
+/// A recursive change skips every file beneath the named node that has a
+/// second name: anyone who can write a folder can hard-link a file they do
+/// not own into it, and a root chown through that name would hand the file
+/// over. The skip is the rule; reporting it is what keeps a partial change
+/// from reading as a whole one.
+public struct AttributeOutcome: Sendable, Hashable {
+    /// Hard-linked files beneath the node that were left as they were.
+    public var unchangedSharedFiles: Int
+
+    public init(unchangedSharedFiles: Int = 0) {
+        self.unchangedSharedFiles = unchangedSharedFiles
+    }
+}

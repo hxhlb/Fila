@@ -16,10 +16,12 @@ import SMBClient
 /// **A request that outlives its budget retires the session.** The vendor
 /// has no cancel and no timeout: a request whose reply never comes would
 /// wait forever, and a task cancelled while it waits cannot make it stop.
-/// Closing the TCP connection can, so that is what a timeout and a
-/// cancellation do. Every handle opened on that session is then gone; the
-/// next request opens a fresh session, and whoever held a handle hears
-/// `disconnected` and starts over.
+/// Closing the TCP connection can, so that is what a timeout does, and what
+/// a cancellation does once its request has had `cancellationGrace` to
+/// answer. Every handle opened on that session is then gone; the next
+/// request opens a fresh session, and whoever held a handle hears
+/// `disconnected` and starts over. A request cancelled before it was sent
+/// sends nothing and touches nothing: the session is everyone's.
 actor SMBConnection {
     struct Configuration: Sendable {
         var host: String
@@ -42,6 +44,11 @@ actor SMBConnection {
     /// How long a connection may take to come up, and a request to answer.
     nonisolated let connectTimeout: TimeInterval
     private(set) var requestTimeout: TimeInterval
+    /// How long a request already on the wire may still answer after its
+    /// caller was cancelled, before the session is closed to bring it back.
+    /// Short: the reply to a small request is usually moments away, and
+    /// closing the session fails every other transfer on it.
+    nonisolated let cancellationGrace: TimeInterval
 
     /// For tests that need a request to outlive its budget on a fast
     /// network; production keeps the one it was built with.
@@ -54,10 +61,16 @@ actor SMBConnection {
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private var lostHandlers: [UUID: @Sendable (SMBError) -> Void] = [:]
 
-    init(configuration: Configuration, connectTimeout: TimeInterval = 20, requestTimeout: TimeInterval = 30) {
+    init(
+        configuration: Configuration,
+        connectTimeout: TimeInterval = 20,
+        requestTimeout: TimeInterval = 30,
+        cancellationGrace: TimeInterval = 2,
+    ) {
         self.configuration = configuration
         self.connectTimeout = connectTimeout
         self.requestTimeout = requestTimeout
+        self.cancellationGrace = cancellationGrace
     }
 
     /// Told when the session is retired for a reason other than the caller
@@ -117,6 +130,9 @@ actor SMBConnection {
         try Task.checkCancellation()
         await acquire()
         defer { release() }
+        // Cancelled while it waited for its turn: nothing was sent, so
+        // there is nothing to bring back and no reason to touch the session.
+        try Task.checkCancellation()
         let client = try await connectedClient()
         return try await run(operation, path: path, timeout: requestTimeout, on: client) { try await body(client) }
     }
@@ -133,6 +149,7 @@ actor SMBConnection {
         try Task.checkCancellation()
         await acquire()
         defer { release() }
+        try Task.checkCancellation()
         guard let client, client === handle.client else { throw SMBError.disconnected }
         return try await run(operation, path: path, timeout: requestTimeout, on: client) { try await body(client) }
     }
@@ -144,7 +161,7 @@ actor SMBConnection {
             return client
         }
         let configuration = configuration
-        let client = SMBClient(host: configuration.host, port: configuration.port)
+        let client = try Self.client(for: configuration)
         do {
             try await run("connect", path: nil, timeout: connectTimeout, on: client) {
                 try await client.login(
@@ -177,6 +194,16 @@ actor SMBConnection {
         return client
     }
 
+    /// A client for `configuration`'s server, not yet connected. The vendor
+    /// traps on a port that does not fit a TCP port, so a port no server
+    /// can listen on is refused here, before it reaches the vendor.
+    private static func client(for configuration: Configuration) throws -> SMBClient {
+        guard (1 ... 65535).contains(configuration.port) else {
+            throw SMBError.connectionFailed(reason: "port \(configuration.port) is out of range")
+        }
+        return SMBClient(host: configuration.host, port: configuration.port)
+    }
+
     private enum Outcome<T: Sendable>: Sendable {
         case value(T)
         case failed(Error)
@@ -184,18 +211,25 @@ actor SMBConnection {
     }
 
     /// `body` against a deadline. The vendor's awaits do not observe task
-    /// cancellation, so both a timeout and a cancellation of the caller
-    /// close the connection to bring `body` back, and nothing returns until
-    /// it has: the turn is not released while a request may still touch
-    /// the session.
-    private func run<T: Sendable>(
+    /// cancellation, so a timeout closes the connection to bring `body`
+    /// back, and so does a cancellation of the caller once `body` has had
+    /// `cancellationGrace` to answer; nothing returns until `body` has: the
+    /// turn is not released while a request may still touch the session.
+    /// A caller cancelled before `body` starts sends nothing.
+    ///
+    /// A request that answers within the grace returns what it answered,
+    /// even to a cancelled caller: it happened on the server, and saying
+    /// otherwise would be the one thing here that is untrue. The caller's
+    /// own next cancellation check stops it.
+    func run<T: Sendable>(
         _ operation: String,
         path: String?,
         timeout: TimeInterval,
         on client: SMBClient,
         _ body: @escaping @Sendable () async throws -> T,
     ) async throws -> T {
-        try await withThrowingTaskGroup(of: Outcome<T>.self) { group in
+        try Task.checkCancellation()
+        return try await withThrowingTaskGroup(of: Outcome<T>.self) { group in
             group.addTask {
                 do { return try await .value(body()) } catch { return .failed(error) }
             }
@@ -203,15 +237,31 @@ actor SMBConnection {
                 try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
                 return .timedOut
             }
-            let first: Outcome<T>?
+            var first: Outcome<T>?
             do {
                 first = try await group.next()
             } catch {
-                // Only the sleeper throws, and only for cancellation.
-                retire(client, reason: .disconnected, announce: false)
-                group.cancelAll()
-                await group.drain()
-                throw CancellationError()
+                // Only the sleeper throws, and only for cancellation. The
+                // request is on the wire and cannot be called back, but its
+                // answer is usually moments away; closing the session at
+                // once would fail every other handle on it. The grace runs
+                // in a task of its own, which the cancellation does not
+                // reach, and is cancelled by hand when the answer wins.
+                let grace = Task.detached { [cancellationGrace] in
+                    try await Task.sleep(nanoseconds: UInt64(min(cancellationGrace, timeout) * 1_000_000_000))
+                }
+                group.addTask {
+                    _ = try? await grace.value
+                    return .timedOut
+                }
+                first = try? await group.next()
+                grace.cancel()
+                if case .timedOut? = first {
+                    retire(client, reason: .disconnected, announce: false)
+                    group.cancelAll()
+                    await group.drain()
+                    throw CancellationError()
+                }
             }
             switch first {
             case let .value(value):
@@ -266,7 +316,7 @@ actor SMBConnection {
     /// the user type a name instead.
     static func listShares(_ configuration: Configuration, timeout: TimeInterval = 20) async throws -> [String] {
         let connection = SMBConnection(configuration: configuration, connectTimeout: timeout, requestTimeout: timeout)
-        let client = SMBClient(host: configuration.host, port: configuration.port)
+        let client = try Self.client(for: configuration)
         defer { client.session.disconnect() }
         return try await connection.run("list shares", path: nil, timeout: timeout, on: client) {
             try await client.login(

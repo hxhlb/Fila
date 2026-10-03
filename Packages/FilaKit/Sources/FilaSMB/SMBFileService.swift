@@ -92,17 +92,30 @@ public final class SMBFileService: FileService, @unchecked Sendable {
         }
     }
 
+    /// The node at `path` itself, as the listing describes it: a reparse
+    /// point is opened as itself, not followed, so a junction chosen for a
+    /// move is a link to the transfer and its target is never walked. A
+    /// reparse point's tag is asked for, so a deduplicated file or a cloud
+    /// placeholder is still the file it reads as.
     public func details(_ path: ServicePath) async throws -> FileEntry {
         let wire = try Self.wirePath(path)
-        let stat = try await connection.perform("details", path: path.description) { client in
-            try await client.fileStat(path: wire)
+        let (stat, tag) = try await connection.perform("details", path: path.description) { client -> (Create.Response, UInt32?) in
+            let stat = try await client.session.nodeStat(path: wire)
+            guard stat.fileAttributes.contains(.reparsePoint) else { return (stat, nil) }
+            do {
+                return try await (stat, client.session.reparseTag(path: wire))
+            } catch is ErrorResponse {
+                // A server that will not say: the link it may be.
+                return (stat, nil)
+            }
         }
+        let attributes = stat.fileAttributes
         return FileEntry(
             name: path.name ?? connection.configuration.share,
-            kind: stat.isDirectory ? .directory : .file,
-            size: stat.isDirectory ? nil : Int64(clamping: stat.size),
-            modified: Self.date(stat.lastWriteTime),
-            isHidden: stat.isHidden || (path.name?.hasPrefix(".") ?? false),
+            kind: SMBEntry.kind(attributes, reparseTag: tag),
+            size: attributes.contains(.directory) ? nil : Int64(clamping: stat.endOfFile),
+            modified: Self.date(fileTime: stat.lastWriteTime),
+            isHidden: attributes.contains(.hidden) || (path.name?.hasPrefix(".") ?? false),
         )
     }
 
@@ -153,16 +166,20 @@ public final class SMBFileService: FileService, @unchecked Sendable {
     }
 
     public func changes(in directory: ServicePath) async throws -> AsyncThrowingStream<Void, Error> {
-        _ = try Self.wirePath(directory)
+        let wire = try Self.wirePath(directory)
         await installObservation()
-        let service = self
+        let connection = connection
         return await observation.subscribe(directory.description) {
-            let entry = try await service.details(directory)
+            // Through a reparse point rather than of it, unlike `details`:
+            // a folder reached through a junction changes where it points.
+            let stat = try await connection.perform("details", path: directory.description) { client in
+                try await client.fileStat(path: wire)
+            }
             // What moves when an entry is added, removed or renamed. A
             // server that reports no time reports nothing to compare, and
             // the poll then never hints; the listing on appearance and the
             // app's own operations still refresh such a folder.
-            return "\(entry.modified?.timeIntervalSince1970 ?? 0)"
+            return "\(Self.date(stat.lastWriteTime)?.timeIntervalSince1970 ?? 0)"
         }
     }
 
@@ -315,22 +332,30 @@ struct SMBEntry: Sendable {
     init(_ information: FileDirectoryInformation) {
         name = information.fileName
         let attributes = information.fileAttributes
-        let kind: FileEntry.Kind = if attributes.contains(.reparsePoint) {
-            // A junction, a symlink, a mount point: something the server
-            // follows on our behalf. Which of those it is, SMB2 does not
-            // say without another request; what it opens as is known.
+        entry = FileEntry(
+            name: name,
+            kind: Self.kind(attributes),
+            size: attributes.contains(.directory) ? nil : Int64(clamping: information.endOfFile),
+            modified: SMBFileService.date(fileTime: information.lastWriteTime),
+            isHidden: attributes.contains(.hidden) || name.hasPrefix("."),
+        )
+    }
+
+    /// What a node with `attributes` is, for the listing and for `details`
+    /// alike. `reparseTag` is the tag of a reparse point when it was asked
+    /// for; only a name-surrogate tag (a symlink, a junction, a mount
+    /// point) names another node. Any other, such as a deduplicated file
+    /// or a cloud placeholder, is the file or folder it reads as.
+    static func kind(_ attributes: FileAttributes, reparseTag: UInt32? = nil) -> FileEntry.Kind {
+        if attributes.contains(.reparsePoint), reparseTag.map({ $0 & 0x2000_0000 != 0 }) ?? true {
+            // Something the server follows on our behalf. Without the tag,
+            // which a listing does not carry, every reparse point is taken
+            // for one; what it opens as is known.
             .symbolicLink(resolved: attributes.contains(.directory) ? .directory : .file)
         } else if attributes.contains(.directory) {
             .directory
         } else {
             .file
         }
-        entry = FileEntry(
-            name: name,
-            kind: kind,
-            size: attributes.contains(.directory) ? nil : Int64(clamping: information.endOfFile),
-            modified: SMBFileService.date(fileTime: information.lastWriteTime),
-            isHidden: attributes.contains(.hidden) || name.hasPrefix("."),
-        )
     }
 }

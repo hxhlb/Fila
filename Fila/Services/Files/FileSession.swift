@@ -1,4 +1,5 @@
 import FilaClient
+import FilaFileOps
 import FilaLog
 import FilaProtocol
 import Foundation
@@ -129,8 +130,9 @@ final class FileSession {
             // it repeats once a second while that is true.
             FilaLog.verbose("daemon not up yet")
             // A connection whose Mach service was never registered is dead for
-            // good, so the next attempt has to build a new one.
-            link.invalidate()
+            // good, and the failed reply already dropped the one this hello
+            // was sent on — that one only. Dropping whatever is current here
+            // would cancel a link a concurrent handshake has just built.
             return nil
         }
         FilaLog.info(
@@ -272,18 +274,34 @@ final class FileSession {
             // Leftovers from a run that was killed. Worth a line: it is the
             // only sign the previous launch did not exit normally.
             FilaLog.info("sweeping \(stale.count) stale workspace(s) under \(parent.path)")
-            let outcome = try await operations.awaitJob(
-                JobRequest(kind: .delete, sources: stale),
-                kind: .delete,
-                subtitle: parent.path,
-                feedback: .silent,
-            )
-            guard outcome.code == .success else { throw outcome }
+            await Self.removeStaleWorkspaces(stale)
         }
         try Task.checkCancellation()
         let workspace = parent.appendingPathComponent(temporaryIdentifier, isDirectory: true)
         guard mkdir(workspace.path, 0o700) == 0 else { throw FilaFailure(errno: errno, path: workspace.path) }
         return workspace
+    }
+
+    /// Removed in this process, as the app's own user — never as root.
+    ///
+    /// Everything in a workspace was made by this app as that user, so
+    /// nothing in one needs more. The parent is checked once, by path, and a
+    /// process running as the same user could swap it for a symlink between
+    /// that check and the removal: as root the sweep would then delete
+    /// whatever directory the symlink named, here it can delete only what
+    /// that process could have deleted itself.
+    ///
+    /// A leftover that will not go is logged and left for the next launch.
+    /// It does not stop this launch from making its own workspace beside it,
+    /// and failing here would fail every share, download and drop for good.
+    private nonisolated static func removeStaleWorkspaces(_ paths: [String]) async {
+        await Task.detached(priority: .utility) {
+            let operations = FileOperations(bootstrapRoot: "")
+            for path in paths {
+                do { try operations.discardTemporary(path) }
+                catch { FilaLog.error("stale workspace not removed, retried next launch: \(error)") }
+            }
+        }.value
     }
 
     /// A failed publication still owns its adjacent temporary. Wait for the

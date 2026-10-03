@@ -31,6 +31,9 @@ final class IconRowCell: UICollectionViewListCell {
     private let nameLabel = UILabel()
     private let detailLabel = UILabel()
     private let sizeLabel = UILabel()
+    private let textStack = UIStackView()
+    private let rowStack = UIStackView()
+    private var stacksSize = false
 
     /// Identifies the artwork load in flight, so a cell reused mid-fetch never
     /// ends up showing the previous row's app.
@@ -123,18 +126,24 @@ final class IconRowCell: UICollectionViewListCell {
             $0.setContentHuggingPriority(.required, for: .horizontal)
         }
 
-        let text = UIStackView(arrangedSubviews: [nameLabel, detailLabel]).then {
+        textStack.do {
+            $0.addArrangedSubview(nameLabel)
+            $0.addArrangedSubview(detailLabel)
             $0.axis = .vertical
             $0.spacing = 1
             $0.alignment = .leading
         }
 
-        let row = UIStackView(arrangedSubviews: [iconView, text, sizeLabel]).then {
+        rowStack.do {
+            $0.addArrangedSubview(iconView)
+            $0.addArrangedSubview(textStack)
+            $0.addArrangedSubview(sizeLabel)
             $0.axis = .horizontal
             $0.alignment = .center
             $0.spacing = FilaUI.Spacing.medium
         }
-        contentView.addSubview(row)
+        contentView.addSubview(rowStack)
+        applyContentSizeCategory()
 
         iconView.snp.makeConstraints { make in
             make.size.equalTo(FilaUI.IconSize.file)
@@ -155,7 +164,7 @@ final class IconRowCell: UICollectionViewListCell {
             make.height.equalTo(appBadge.snp.width)
             make.trailing.bottom.equalTo(iconView)
         }
-        row.snp.makeConstraints { make in
+        rowStack.snp.makeConstraints { make in
             make.edges.equalTo(contentView.layoutMarginsGuide)
         }
         // Without this the separator starts under the icon, because a cell
@@ -173,6 +182,29 @@ final class IconRowCell: UICollectionViewListCell {
         accessibilityTraits = .button
     }
 
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        applyContentSizeCategory()
+    }
+
+    /// At the accessibility text sizes a name and a size no longer fit side
+    /// by side: the required size column took the width and the name was
+    /// left a few letters. There the size goes under the name, and the name
+    /// and its detail wrap instead of truncating.
+    private func applyContentSizeCategory() {
+        let stacks = traitCollection.preferredContentSizeCategory.isAccessibilityCategory
+        nameLabel.numberOfLines = stacks ? 0 : 1
+        detailLabel.numberOfLines = stacks ? 0 : 1
+        guard stacks != stacksSize else { return }
+        stacksSize = stacks
+        if stacks {
+            textStack.addArrangedSubview(sizeLabel)
+        } else {
+            rowStack.addArrangedSubview(sizeLabel)
+        }
+        sizeLabel.textAlignment = stacks ? .natural : .right
+    }
+
     // MARK: - Content
 
     func configure(
@@ -184,17 +216,19 @@ final class IconRowCell: UICollectionViewListCell {
         highlight: String? = nil,
     ) {
         nameLabel.textColor = nameColor
+        let visibleName = FilePresentation.visibleName(name)
         // A search hit tints the part that matched, the way a mention is
         // tinted: the text itself is left exactly as it is, so a list of
-        // near-identical names says why each one is there.
+        // near-identical names says why each one is there. The range is
+        // found in the real name; the visible one has the same UTF-16 length.
         if let highlight, !highlight.isEmpty,
            let range = name.range(of: highlight, options: [.caseInsensitive, .diacriticInsensitive])
         {
-            let text = NSMutableAttributedString(string: name, attributes: [.foregroundColor: nameColor])
+            let text = NSMutableAttributedString(string: visibleName, attributes: [.foregroundColor: nameColor])
             text.addAttribute(.foregroundColor, value: UIColor.tintColor, range: NSRange(range, in: name))
             nameLabel.attributedText = text
         } else {
-            nameLabel.text = name
+            nameLabel.text = visibleName
         }
         detailLabel.text = detail
         detailLabel.isHidden = detail?.isEmpty != false
@@ -293,10 +327,15 @@ final class IconRowCell: UICollectionViewListCell {
     func configure(_ node: FileNode, decoration: FolderDecoration? = nil) {
         let presentation = node.kind == .directory ? decoration : nil
         let image = FilePresentation.image(for: node)
+        let name = presentation?.name ?? node.name
+        // Both lines can hold a file name — the item's, or a link's target —
+        // so the label shows them the way a name is shown; VoiceOver reads
+        // them as they are.
+        let detail = presentation.map { [$0.detail, node.name].compactMap(\.self).joined(separator: " · ") }
+            ?? Self.detail(for: node)
         configure(
-            name: presentation?.name ?? node.name,
-            detail: presentation.map { [$0.detail, node.name].compactMap(\.self).joined(separator: " · ") }
-                ?? Self.detail(for: node),
+            name: name,
+            detail: FilePresentation.visibleName(detail),
             image: image,
             nameColor: presentation == nil ? .label : .systemBrown,
         )
@@ -323,10 +362,10 @@ final class IconRowCell: UICollectionViewListCell {
         // a link wears its target's picture, so without this a link to a PNG
         // and the PNG itself read identically.
         accessibilityLabel = [
-            nameLabel.text,
+            name,
             node.kind == .symbolicLink ? String(localized: "Symbolic Link") : nil,
             sizeLabel.text,
-            detailLabel.text,
+            detail,
         ]
         .compactMap(\.self)
         .filter { !$0.isEmpty }

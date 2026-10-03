@@ -44,6 +44,10 @@
             fila_xpc_type_dictionary()
         }
 
+        public static var typeDouble: xpc_type_t {
+            fila_xpc_type_double()
+        }
+
         public static var typeUInt64: xpc_type_t {
             fila_xpc_type_uint64()
         }

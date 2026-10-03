@@ -667,12 +667,28 @@ final class PropertiesViewController: TabContentViewController {
         let didChange = didChange
         Task { [weak self] in
             do {
-                try await link.setAttributes(change, at: path)
+                let outcome = try await link.setAttributes(change, at: path)
                 let refreshed = try await link.details(of: path)
                 await MainActor.run {
                     self?.details = refreshed
                     self?.rebuild()
                     didChange?(refreshed)
+                    // A recursive change leaves a file with a second name
+                    // alone: that name may be outside this folder, and root
+                    // would change the file there too. Said, not hidden.
+                    let unchanged = outcome.unchangedSharedFiles
+                    if unchanged > 0 {
+                        self?.presentMessage(
+                            String(
+                                localized: "Some Files Were Not Changed",
+                                comment: "Title of the notice after a recursive change in Properties skipped hard-linked files.",
+                            ),
+                            message: String(
+                                localized: "Files with more than one name were left unchanged: \(unchanged). Their other names may be outside this folder.",
+                                comment: "Message after a recursive change in Properties skipped hard-linked files; the number is how many.",
+                            ),
+                        )
+                    }
                 }
             } catch {
                 await MainActor.run {
@@ -799,8 +815,16 @@ final class PropertiesViewController: TabContentViewController {
             placeholder: String.LocalizationValue("Numeric ID"),
             text: String(current),
             doneButtonText: String.LocalizationValue("Set"),
-        ) { text in
-            guard let value = UInt32(text) else { return }
+        ) { [weak self] text in
+            // 4294967295 is `(uid_t)-1`, which chown(2) reads as "leave it
+            // unchanged": accepted, it succeeded at doing nothing.
+            guard let value = UInt32(text), value != UInt32.max else {
+                self?.presentMessage(
+                    String(localized: "Invalid ID"),
+                    message: String(localized: "Enter a number from 0 to 4294967294."),
+                )
+                return
+            }
             apply(value)
         }
         present(alert, animated: true)

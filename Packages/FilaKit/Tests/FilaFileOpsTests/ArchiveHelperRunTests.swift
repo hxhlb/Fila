@@ -60,6 +60,58 @@ struct ArchiveHelperRunTests {
         #expect(outcome.systemError == ENOENT)
     }
 
+    /// A member name built to be huge comes back as one enormous line. The
+    /// daemon must neither hold it nor decode it, and the lines around it must
+    /// still arrive.
+    @Test
+    func `A line longer than the limit is dropped whole and the next one still arrives`() throws {
+        var ends: [Int32] = [-1, -1]
+        try #require(pipe(&ends) == 0)
+        let oversized = ArchiveHelperRun.maximumLineLength + 1
+        let writer = Thread {
+            func send(_ bytes: [UInt8]) {
+                var sent = 0
+                while sent < bytes.count {
+                    let put = bytes[sent...].withUnsafeBytes { write(ends[1], $0.baseAddress, $0.count) }
+                    guard put > 0 else { return }
+                    sent += put
+                }
+            }
+            send(Array("first\n".utf8))
+            // Arrives in many reads, and never with its newline in the first.
+            send([UInt8](repeating: UInt8(ascii: "x"), count: oversized * 3))
+            send(Array("\nlast\n".utf8))
+            send([UInt8](repeating: UInt8(ascii: "y"), count: oversized))
+            close(ends[1])
+        }
+        writer.start()
+        var lines: [String] = []
+        ArchiveHelperRun.readLines(from: ends[0]) { lines.append(String(decoding: $0, as: UTF8.self)) }
+        close(ends[0])
+        #expect(lines == ["first", "last"])
+    }
+
+    /// A cancel that reaches the helper before it has read its task must not
+    /// be lost. The job runs on a dispatch worker, as it does in the daemon,
+    /// and a worker's mask blocks SIGTERM: inherited, the signal would wait
+    /// until the five-second SIGKILL.
+    @Test
+    func `A helper starts with no signal blocked, so an early cancel ends it at once`() {
+        let operations = FileOperations(bootstrapRoot: scratch.root, archiveHelper: helper("exec sleep 30"))
+        let job = FileJob(request: request(), operations: operations)
+        let finished = DispatchSemaphore(value: 0)
+        var outcome = FilaFailure(code: .success)
+        let started = Date()
+        DispatchQueue.global().async {
+            outcome = job.run { _ in }
+            finished.signal()
+        }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { job.cancel() }
+        #expect(finished.wait(timeout: .now() + 10) == .success)
+        #expect(outcome.code == .cancelled)
+        #expect(Date().timeIntervalSince(started) < 4)
+    }
+
     @Test
     func `Cancel hangs the helper up and the job reports cancelled`() {
         let operations = FileOperations(bootstrapRoot: scratch.root, archiveHelper: helper("cat >/dev/null; exec sleep 30"))

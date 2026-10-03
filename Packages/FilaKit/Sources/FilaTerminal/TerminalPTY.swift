@@ -142,6 +142,10 @@ public final class TerminalPTY: @unchecked Sendable {
         queue.async { [self] in
             guard !isClosed else { return }
             finish()
+            // Nothing the handler captured outlives the hang-up: the pump
+            // itself lives on until its sources have let go, and a handler
+            // that holds the terminal's session would keep that alive too.
+            onOutput = nil
             guard liveSourceCount > 0 else {
                 // Never started: nothing but this holds the descriptor.
                 isClosed = true

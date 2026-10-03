@@ -51,7 +51,19 @@ public final class ArchiveReader: @unchecked Sendable {
     /// instead would leave the free to a subtlety — Swift runs `deinit` for a
     /// throwing initialiser that had already set every stored property — and a
     /// handle freed twice is not a subtlety worth living with.
-    public convenience init(descriptor: Int32, name: String? = nil, password: String? = nil) throws {
+    ///
+    /// `streaming` reads the file front to back the way a pipe would, with no
+    /// seek: a zip is then walked by its local headers in order rather than
+    /// listed from its central directory. The two can disagree in a crafted
+    /// zip — a member with a local header and no directory record — and a
+    /// caller that must see what a streaming consumer such as installd sees
+    /// asks for this.
+    public convenience init(
+        descriptor: Int32,
+        name: String? = nil,
+        password: String? = nil,
+        streaming: Bool = false,
+    ) throws {
         let source = try ArchiveSource(descriptor: descriptor)
         guard let handle = archive_read_new() else { throw FormatFailure.system(errno: ENOMEM) }
         if let password, !password.isEmpty {
@@ -71,10 +83,14 @@ public final class ArchiveReader: @unchecked Sendable {
             guard let clientData, let buffer else { return -1 }
             return Unmanaged<ArchiveSource>.fromOpaque(clientData).takeUnretainedValue().fill(buffer)
         }
-        archive_read_set_seek_callback(handle) { _, clientData, offset, whence in
-            guard let clientData else { return Int64(ARCHIVE_FATAL) }
-            return Unmanaged<ArchiveSource>.fromOpaque(clientData).takeUnretainedValue()
-                .seek(to: offset, whence: whence)
+        // Without a seek callback libarchive's seekable zip reader cannot
+        // find the central directory and does not bid; the streaming one wins.
+        if !streaming {
+            archive_read_set_seek_callback(handle) { _, clientData, offset, whence in
+                guard let clientData else { return Int64(ARCHIVE_FATAL) }
+                return Unmanaged<ArchiveSource>.fromOpaque(clientData).takeUnretainedValue()
+                    .seek(to: offset, whence: whence)
+            }
         }
         archive_read_set_skip_callback(handle) { _, clientData, request in
             guard let clientData else { return 0 }

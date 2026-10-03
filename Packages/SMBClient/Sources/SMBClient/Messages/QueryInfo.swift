@@ -82,10 +82,24 @@ public enum QueryInfo {
             let reader = ByteReader(data)
 
             header = reader.read()
+            // Fila: the fixed fields and the buffer length are the server's
+            // to state, and a reply shorter than either trapped in the
+            // reader. In a compound, `data` runs on through the replies after
+            // this one, so this reply ends at its NextCommand. A buffer it
+            // claims but does not hold is no buffer: empty, which a caller that
+            // needs bytes refuses as malformed, as `reparseTag(path:)` does.
+            let end = header.nextCommand == 0 ? data.count : min(Int(header.nextCommand), data.count)
+            guard end >= 72 else {
+                structureSize = 0
+                outputBufferOffset = 0
+                outputBufferLength = 0
+                buffer = Data()
+                return
+            }
             structureSize = reader.read()
             outputBufferOffset = reader.read()
             outputBufferLength = reader.read()
-            buffer = reader.read(count: Int(outputBufferLength))
+            buffer = Int(outputBufferLength) <= end - 72 ? reader.read(count: Int(outputBufferLength)) : Data()
         }
     }
 

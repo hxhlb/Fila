@@ -21,7 +21,11 @@ public extension FileOperations {
         var ownsTemporary = false
         do {
             // Clone the opened file, so both paths copy the same source inode.
-            let cloned = fclonefileat(input, AT_FDCWD, temporary, 0) == 0
+            // CLONE_ACL keeps its ACLs; a kernel without the flag says EINVAL.
+            var cloned = fclonefileat(input, AT_FDCWD, temporary, UInt32(CLONE_ACL)) == 0
+            if !cloned, errno == EINVAL {
+                cloned = fclonefileat(input, AT_FDCWD, temporary, 0) == 0
+            }
             ownsTemporary = cloned
             let output = Darwin.open(
                 temporary,
@@ -32,7 +36,8 @@ public extension FileOperations {
             ownsTemporary = true
             defer { close(output) }
             if !cloned {
-                guard fcopyfile(input, output, nil, copyfile_flags_t(COPYFILE_ALL)) == 0 else {
+                // Holes stay holes where both sides can hold one.
+                guard fcopyfile(input, output, nil, copyfile_flags_t(COPYFILE_ALL | COPYFILE_DATA_SPARSE)) == 0 else {
                     throw FilaFailure(errno: errno, path: destination)
                 }
             }

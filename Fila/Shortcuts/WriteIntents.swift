@@ -201,14 +201,18 @@ struct DeleteItemIntent: AppIntent {
         // will actually be destroyed, not about the string that was typed.
         let asked = try IntentSupport.path(path)
         let target = try await IntentSupport.details(of: asked).path
-        if permanently {
+        // A backend with no trash (the sandboxed one) can only delete
+        // permanently, as the browser does there: the confirmation says so,
+        // so the default still never destroys anything without asking.
+        let permanent = permanently || !FileActions.backendHasTrash
+        if permanent {
             try await confirm("Permanently delete \(target)? This cannot be undone.")
         } else {
             try await confirm("Move \(target) to the trash?")
         }
         try await IntentSupport.job(
-            JobRequest(kind: .delete, sources: [target], useTrash: !permanently),
-            kind: permanently ? .delete : .trash,
+            JobRequest(kind: .delete, sources: [target], useTrash: !permanent),
+            kind: permanent ? .delete : .trash,
             subtitle: OperationCenter.describe([target]),
             announcing: [(asked as NSString).deletingLastPathComponent],
         )
@@ -240,19 +244,30 @@ struct WriteTextFileIntent: AppIntent {
     /// about to do, against the resolved path.
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<FileEntity> {
-        let path = try IntentSupport.path(path)
+        var path = try IntentSupport.path(path)
         // `try?` would be wrong here, and wrong in the one way this whole file
         // exists to prevent: it turns "could not find out" into "not there", so
         // a request that failed with `ECONNRESET` or `ELOOP` would be confirmed
         // as *Create* and then replace a file that was already sitting there.
         // Only "it is not there" means it is not there.
-        let existing = try await IntentSupport.absentOrDetails(of: path)
-        if let existing {
+        if var existing = try await IntentSupport.absentOrDetails(of: path) {
             let kind = existing.node.link?.resolvedKind ?? existing.node.kind
             // Writing "to" a directory would fail at the rename anyway; saying
             // so here means the confirmation is never about something
             // impossible.
             guard kind == .regular else { throw IntentFailure.notAFile(existing.path) }
+            // A link is written through, as reading it reads through it: the
+            // replacement goes on the file at the end of the chain, and that
+            // is the file the confirmation names. Replacing the link's own
+            // name would turn the link into a copy and leave its file as it
+            // was.
+            if existing.node.kind == .symbolicLink {
+                existing = try await IntentSupport.daemon(retryOnDisconnect: true) { [path] link in
+                    try await AtomicSave.target(of: path, link: link)
+                }
+                guard existing.node.kind == .regular else { throw IntentFailure.notAFile(existing.path) }
+                path = existing.path
+            }
             try await confirm("Replace the contents of \(existing.path)? This cannot be undone.")
         } else {
             try await confirm("Create \(path) with this text?")

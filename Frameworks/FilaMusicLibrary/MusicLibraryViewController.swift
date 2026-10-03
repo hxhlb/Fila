@@ -95,10 +95,18 @@ final class MusicLibraryViewController: BackendListViewController<MusicLibraryTr
         }
         installSearch(search)
         for name in [Notification.Name.MPMediaLibraryDidChange, UIApplication.didBecomeActiveNotification] {
-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+            notifications.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.backend.libraryChanged() }
-            }
+            })
         }
+    }
+
+    /// A block observer outlives its screen unless removed: every page ever
+    /// opened would leave its registrations behind.
+    private var notifications: [NSObjectProtocol] = []
+
+    deinit {
+        notifications.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
     // MARK: - List hooks

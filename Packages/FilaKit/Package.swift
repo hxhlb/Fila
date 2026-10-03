@@ -50,8 +50,8 @@ let package = Package(
         // must never take either: SnapKit and Then are layout and view setup.
         .package(url: "https://github.com/SnapKit/SnapKit.git", from: "6.0.0"),
         .package(url: "https://github.com/devxoul/Then.git", from: "3.0.0"),
-        // The SMB2 client, vendored at a pinned revision with one paging
-        // method added; see Packages/SMBClient/FILA-VENDOR.md. Linked by
+        // The SMB2 client, vendored at a pinned revision with the additions
+        // and hardening Packages/SMBClient/FILA-VENDOR.md lists. Linked by
         // FilaSMB alone, which is app-side in both compositions.
         .package(path: "../SMBClient"),
     ],
@@ -185,7 +185,11 @@ let package = Package(
         // root and the share through `FileTransfer`, both ends real.
         .testTarget(
             name: "FilaSMBTests",
-            dependencies: ["FilaSMB", "FilaBackendKit", "FilaClient"],
+            dependencies: [
+                "FilaSMB", "FilaBackendKit", "FilaClient",
+                // The hardening tests drive the vendored client directly.
+                .product(name: "SMBClient", package: "SMBClient"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v5)],
         ),
 

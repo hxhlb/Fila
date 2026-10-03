@@ -91,6 +91,13 @@ final class ServersSettingsViewController: UITableViewController {
             let root = BackendComposition.registry.backend(id)?.root
             content.text = root?.displayName
             content.secondaryText = root?.detail
+            // A name is whatever was pasted into the setup sheet; unbounded,
+            // one row could fill the screen. The middle is cut so both ends
+            // still tell two long names apart.
+            content.textProperties.numberOfLines = 2
+            content.textProperties.lineBreakMode = .byTruncatingMiddle
+            content.secondaryTextProperties.numberOfLines = 2
+            content.secondaryTextProperties.lineBreakMode = .byTruncatingMiddle
             content.secondaryTextProperties.color = .secondaryLabel
             content.secondaryTextProperties.font = .preferredFont(forTextStyle: .footnote)
             content.image = root.flatMap(SidebarLocation.image(for:))

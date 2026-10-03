@@ -187,4 +187,20 @@ struct DirectoryObservationTests {
         utimes(scratch.path("watched"), &times)
         #expect(await hints.hinted(after: 1, within: 12))
     }
+
+    @Test
+    func `A folder opened through a link is polled at its target, not at the link`() async throws {
+        let scratch = LocalScratch()
+        scratch.directory("target")
+        #expect(symlink("target", scratch.path("link")) == 0)
+        let observation = DirectoryObservation(interval: 0.02)
+        let adapter = LocalFileServiceAdapter(access: LocalFileService(), rootPath: scratch.root, observation: observation)
+        let hints = try await Hints(adapter.changes(in: ServicePath("link")))
+        #expect(await hints.hinted(after: 0, within: 10))
+        // Another process changes the folder; the link itself never moves.
+        scratch.file("target/new.txt")
+        var times = timeval(tv_sec: 1_600_000_000, tv_usec: 0)
+        utimes(scratch.path("target"), &times)
+        #expect(await hints.hinted(after: 1, within: 12))
+    }
 }

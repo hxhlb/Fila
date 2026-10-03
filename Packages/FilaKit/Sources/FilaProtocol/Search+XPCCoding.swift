@@ -65,7 +65,10 @@
                 matches.reserveCapacity(xpc_array_get_count(array))
                 for index in 0 ..< xpc_array_get_count(array) {
                     let entry = xpc_array_get_value(array, index)
-                    guard let directory = xpc_dictionary_get_string(entry, MatchKey.directory),
+                    // Checked first: libxpc kills the process for a dictionary
+                    // accessor on anything else.
+                    guard xpc_get_type(entry) == FilaXPC.typeDictionary,
+                          let directory = xpc_dictionary_get_string(entry, MatchKey.directory),
                           let value = xpc_dictionary_get_value(entry, MatchKey.node),
                           let node = FileNode(decoding: value) else { continue }
                     matches.append(SearchMatch(directory: String(cString: directory), node: node))

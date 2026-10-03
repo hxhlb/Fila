@@ -71,9 +71,7 @@ enum IntentSupport {
     /// a path expression.
     static func child(of directory: String, named name: String) throws -> String {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, name != ".", name != "..",
-              !name.contains("/"), !name.contains("\0")
-        else {
+        guard FilaGuard.isComponent(name) else {
             throw IntentFailure.invalidName(name)
         }
         return try path(directory == "/" ? "/" + name : directory + "/" + name)

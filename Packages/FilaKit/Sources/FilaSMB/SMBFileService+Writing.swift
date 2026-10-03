@@ -27,7 +27,18 @@ extension SMBFileService: WritableFileService {
         let wire = try Self.wirePath(directory)
         do {
             try await connection.perform("mkdir", path: directory.description) { client in
-                _ = try await client.session.createDirectory(path: wire)
+                // Not the vendor's `createDirectory`, which composes the name
+                // to NFC: on a server that compares bytes, the folder would
+                // land under a name its children's paths do not spell.
+                let response = try await client.session.create(
+                    desiredAccess: [.readData, .readAttributes],
+                    fileAttributes: [],
+                    shareAccess: [.read, .write, .delete],
+                    createDisposition: .create,
+                    createOptions: [.directoryFile],
+                    name: wire,
+                )
+                try await client.session.close(fileId: response.fileId)
             }
         } catch let error as SMBError {
             throw Self.classify(error, at: directory)
@@ -97,22 +108,37 @@ extension SMBFileService: WritableFileService {
         // Publication: the server's one rename. Exclusive by default — an
         // occupied name is refused by the server in this same request. The
         // cancellation check sits inside, so a cancel landing between the
-        // last write and the rename still takes the temporary with it.
+        // last write and the rename still takes the temporary with it. Past
+        // that check the rename runs in a task of its own, out of the
+        // caller's cancellation, like a close: a cancel that reached it on
+        // the wire could not say whether the server renamed, and would
+        // report as not published a file that was.
         do {
             try Task.checkCancellation()
-            try await connection.perform("publish", path: destination.description) { client in
-                try await client.session.rename(from: temporaryWire, to: targetWire, replaceIfExists: policy == .replace)
-            }
+            let connection = connection
+            let replace = policy == .replace
+            try await Task.detached {
+                try await connection.perform("publish", path: destination.description) { client in
+                    do {
+                        try await client.session.rename(from: temporaryWire, to: targetWire, replaceIfExists: replace)
+                    } catch {
+                        throw Self.unlessAnswered(error)
+                    }
+                }
+            }.value
         } catch let error as SMBError {
             switch error {
             case .timedOut, .disconnected:
-                // The request went out and no answer came back. The server
-                // may have renamed the file or may not; nothing here guesses.
+                // The request went out and no answer came back, or none
+                // that could be read. The server may have renamed the file
+                // or may not; nothing here guesses.
                 FilaLog.warning("smb: publication of \(destination) unanswered; outcome unknown")
                 throw WriteFailure.publicationUnknown(destination)
             default:
                 // Refused, or never sent — a connection that could not be
-                // made carried no request. The temporary goes either way.
+                // made carried no request; a failure after the session
+                // was up arrives above as `disconnected`. The temporary
+                // goes either way.
                 await discard(temporary)
                 throw Self.classify(error, at: destination)
             }
@@ -186,6 +212,15 @@ extension SMBFileService: WritableFileService {
         case .directoryNotEmpty: WriteFailure.notEmpty(path)
         default: error
         }
+    }
+
+    /// A failure of a request that went out on a connected session. The
+    /// server's answer stays its answer. Anything else — a reply that could
+    /// not be parsed, a transport that failed under the request — leaves
+    /// open whether the server acted on it, which is `disconnected`, and
+    /// not the `connectionFailed` a connect that sent nothing also maps to.
+    static func unlessAnswered(_ error: Error) -> Error {
+        error is ErrorResponse ? error : SMBError.disconnected
     }
 
     /// Up to `count` bytes from `descriptor`, retrying an interrupted read.

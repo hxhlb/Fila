@@ -1,6 +1,7 @@
 @testable import FilaApplications
 import FilaBackendKit
 @testable import FilaClient
+import FilaProtocol
 import Foundation
 import Testing
 
@@ -75,14 +76,76 @@ struct ApplicationBackendTests {
             in: "/var/mobile/Containers/Data/Application",
             entries: [("DDDD", true), ("EEEE", true), ("file", false)],
             apps: [app],
-        ) { path in path.hasPrefix("/var/mobile/Containers/Data/Application/EEEE/") ? plist : nil }
+        ) { path in
+            guard path.hasPrefix("/var/mobile/Containers/Data/Application/EEEE/") else {
+                throw FilaFailure(code: .notFound, systemError: ENOENT, path: path)
+            }
+            return plist
+        }
         #expect(named["DDDD"]?.name == "Fila")
         #expect(named["EEEE"]?.name == "other")
         #expect(named["EEEE"]?.detail == "com.example.other")
         #expect(named["file"] == nil)
         // Not a container root and no .app inside: nothing to decorate.
-        let plain = await ApplicationFolderDecorations.load(in: "/etc", entries: [("x", true)], apps: [app]) { _ in nil }
+        let plain = await ApplicationFolderDecorations.load(in: "/etc", entries: [("x", true)], apps: [app]) { path in
+            throw FilaFailure(code: .notFound, systemError: ENOENT, path: path)
+        }
         #expect(plain.isEmpty)
+    }
+
+    /// What the link throws when the daemon goes away mid-request.
+    private struct LinkDropped: Error {}
+
+    /// Counts the metadata reads a listing makes.
+    private final class ReadCounter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var reads = 0
+
+        func read() {
+            lock.lock(); defer { lock.unlock() }
+            reads += 1
+        }
+
+        var count: Int {
+            lock.lock(); defer { lock.unlock() }
+            return reads
+        }
+    }
+
+    @Test
+    func `A container whose metadata could not be read is asked again`() async throws {
+        // The cache is process-wide: a name no other test lists.
+        let container = UUID().uuidString
+        let plist = try PropertyListSerialization.data(
+            fromPropertyList: ["MCMMetadataIdentifier": "com.example.later"], format: .xml, options: 0,
+        )
+        // The daemon restarting: the open fails.
+        let failed = await ApplicationFolderDecorations.load(
+            in: ApplicationFolderDecorations.dataRoot, entries: [(container, true)], apps: [],
+        ) { _ in throw LinkDropped() }
+        #expect(failed[container] == nil)
+        // Back again: the same container is named on the next listing.
+        let named = await ApplicationFolderDecorations.load(
+            in: ApplicationFolderDecorations.dataRoot, entries: [(container, true)], apps: [],
+        ) { _ in plist }
+        #expect(named[container]?.applicationIdentifier == "com.example.later")
+    }
+
+    @Test(arguments: [ENOENT, ENOTDIR, EACCES, EPERM])
+    func `A container whose metadata cannot exist or be opened is read once`(code: Int32) async {
+        // The cache is process-wide: a name no other test lists.
+        let container = UUID().uuidString
+        let reads = ReadCounter()
+        for _ in 0 ..< 3 {
+            let decorations = await ApplicationFolderDecorations.load(
+                in: ApplicationFolderDecorations.groupRoot, entries: [(container, true)], apps: [],
+            ) { path in
+                reads.read()
+                throw FilaFailure(code: .notFound, systemError: code, path: path)
+            }
+            #expect(decorations[container] == nil)
+        }
+        #expect(reads.count == 1, "every listing of the folder opened the file again")
     }
 
     @Test

@@ -71,7 +71,7 @@ extension RootSplitViewController {
                         self.open(self.parent(of: path), select: (path as NSString).lastPathComponent)
                     }
                 } catch let failure as FilaFailure {
-                    self.report(failure)
+                    TopPresenter.whenReady(from: self) { $0.report(failure) }
                 } catch {}
             }
         case let .directory(path):
@@ -141,14 +141,18 @@ extension RootSplitViewController {
             let session = FileSession.shared
             do {
                 let details = try await session.perform(retryOnDisconnect: true) { try await $0.details(of: path) }
-                self.presentAsSheet(
-                    UINavigationController(rootViewController: PropertiesViewController(
-                        details: details,
-                        link: session.link,
-                    )),
-                )
+                // Over whatever is up — another sheet, a card — rather than
+                // from the root, which UIKit refuses while it presents one.
+                TopPresenter.whenReady(from: self) { top in
+                    top.presentAsSheet(
+                        UINavigationController(rootViewController: PropertiesViewController(
+                            details: details,
+                            link: session.link,
+                        )),
+                    )
+                }
             } catch let failure as FilaFailure {
-                self.report(failure)
+                TopPresenter.whenReady(from: self) { $0.report(failure) }
             } catch {}
         }
     }

@@ -220,7 +220,10 @@ public protocol LocalFileAccess: AnyObject, Sendable {
     func remove(_ path: String, directory: Bool, overrideGuard: Bool) async throws
 
     /// Change mode, owner, group, times, BSD flags or one extended attribute.
-    func setAttributes(_ change: AttributeChange, at path: String) async throws
+    /// The outcome says what a recursive change left alone on purpose, which
+    /// a caller that shows the change as done has to say too.
+    @discardableResult
+    func setAttributes(_ change: AttributeChange, at path: String) async throws -> AttributeOutcome
 
     /// Put a temporary file the caller has finished writing in place of
     /// `target`, carrying the original's metadata across first.

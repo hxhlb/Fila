@@ -86,7 +86,9 @@ final class MachOInspectorViewController: TabContentViewController {
                     let image = try FilaFormats.MachOImage(descriptor: descriptor)
                     return try image.slices.map { slice in
                         try Task.checkCancellation()
-                        return try (slice, image.inspect(slice), image.entitlements(of: slice)?.root)
+                        // Per slice: entitlements this model cannot hold make
+                        // one row unreadable, not the whole inspection.
+                        return try (slice, image.inspect(slice), Result { try image.entitlements(of: slice)?.root })
                     }
                 }
                 do {
@@ -98,7 +100,7 @@ final class MachOInspectorViewController: TabContentViewController {
                     var updatedNames: [String] = []
                     var snapshot = NSDiffableDataSourceSnapshot<Int, Item>()
                     for (index, architecture) in architectures.enumerated() {
-                        let entitlements = architecture.2.map(Self.displayValue)
+                        let entitlements = architecture.2.map { $0.map(Self.displayValue) }
                         let built = Self.rows(
                             for: architecture.0,
                             inspection: architecture.1,
@@ -175,7 +177,7 @@ final class MachOInspectorViewController: TabContentViewController {
     private static func rows(
         for architecture: FilaFormats.MachOImage.Slice,
         inspection: FilaFormats.MachOImage.Inspection,
-        entitlements: PropertyListValue?,
+        entitlements: Result<PropertyListValue?, Error>,
         isUniversal: Bool,
     ) -> [Row] {
         var rows: [Row] = [
@@ -185,10 +187,19 @@ final class MachOInspectorViewController: TabContentViewController {
                 : String(localized: "None")),
             .list(String(localized: "Linked Libraries"), architecture.linkedLibraries),
         ]
-        if let entitlements {
-            rows.append(.entitlements(entitlements))
-        } else {
+        switch entitlements {
+        case let .success(value?):
+            rows.append(.entitlements(value))
+        case .success(nil):
             rows.append(.fact(String(localized: "Entitlements"), String(localized: "None")))
+        case .failure:
+            rows.append(.fact(
+                String(localized: "Entitlements"),
+                String(
+                    localized: "Unreadable",
+                    comment: "The value of a binary's Entitlements row when its signature carries entitlements Fila cannot read.",
+                ),
+            ))
         }
         rows.append(.list(String(localized: "Runpaths"), inspection.runpaths))
         rows.append(.list(String(localized: "Load Commands"), inspection.loadCommands))
@@ -265,6 +276,7 @@ final class MachOInspectorViewController: TabContentViewController {
         case let .array(values): .array(values.map(displayValue))
         case let .dictionary(values):
             .dictionary(values.keys.sorted().map { (key: $0, value: displayValue(values[$0]!)) })
+        case let .unrepresentable(text): .readOnly(text)
         }
     }
 

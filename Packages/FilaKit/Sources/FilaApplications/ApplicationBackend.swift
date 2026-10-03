@@ -145,8 +145,8 @@ public final class ApplicationBackend: Backend, ApplicationCapability {
         let access = local.access
         return await ApplicationFolderDecorations.load(in: directory, entries: entries, apps: apps) { path in
             // Through the local layer — the file is root-owned — and small.
-            guard let descriptor = try? await access.open(path, flags: O_RDONLY) else { return nil }
-            return try? await Task.detached { try DescriptorIO.readAndClose(descriptor, limit: 64 * 1024) }.value
+            let descriptor = try await access.open(path, flags: O_RDONLY)
+            return try await Task.detached { try DescriptorIO.readAndClose(descriptor, limit: 64 * 1024) }.value
         }
     }
 

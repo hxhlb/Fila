@@ -37,15 +37,23 @@ final class LocalFileServiceAdapter: FileService, @unchecked Sendable {
         if rootPath == "/" {
             return try? ServicePath(absolute)
         }
-        guard absolute == rootPath || absolute.hasPrefix(rootPath + "/") else { return nil }
-        return try? ServicePath(String(absolute.dropFirst(rootPath.count)))
+        // By bytes: a String prefix compares Characters, and a child whose
+        // name starts with a combining mark is one Character with its slash.
+        guard absolute == rootPath || absolute.utf8.starts(with: (rootPath + "/").utf8) else { return nil }
+        return try? ServicePath(String(decoding: absolute.utf8.dropFirst(rootPath.utf8.count), as: UTF8.self))
     }
 
     func changes(in directory: ServicePath) async throws -> AsyncThrowingStream<Void, Error> {
         let access = access
         let path = absolutePath(directory)
+        // The folder itself, never the name: `details` resolves every
+        // component but the last and `lstat`s that one, so a folder opened
+        // through a link (`/etc`, `/var/jb`, `/tmp`) would be polled at the
+        // link, whose time never moves. A last component of `.` is resolved
+        // with the rest.
+        let probe = path == "/" ? path : path + "/."
         return await observation.subscribe(path) {
-            try await access.details(of: path).node.modified
+            try await access.details(of: probe).node.modified
         }
     }
 
@@ -176,7 +184,11 @@ final class LocalFileServiceAdapter: FileService, @unchecked Sendable {
 extension LocalFileServiceAdapter: WritableFileService, DescriptorFileService {
     func openForReading(_ path: ServicePath) async throws -> Int32 {
         let source = absolutePath(path)
-        let descriptor = try await access.open(source, flags: O_RDONLY)
+        // A transfer never dereferences a link: its plan skipped every one it
+        // found. `O_NOFOLLOW` keeps that true for a file swapped for a link
+        // since the plan — opened as root, the link would carry a file the
+        // user could not read out of the device under the planned name.
+        let descriptor = try await access.open(source, flags: O_RDONLY | O_NOFOLLOW)
         // As in `copyContents`: only a regular file has contents to carry.
         var status = stat()
         guard fstat(descriptor, &status) == 0 else {
@@ -217,6 +229,15 @@ extension LocalFileServiceAdapter: WritableFileService, DescriptorFileService {
             do {
                 try await DescriptorIO.blocking { isCancelled in
                     try Self.pump(from: descriptor, to: output, expected: size, isCancelled: isCancelled, progress: progress)
+                    // On disk before any publication: the plain rename that
+                    // replaces a link does not sync the way `replaceItem`
+                    // does, and a name must never come back from a power
+                    // loss holding a short file.
+                    while fsync(output) != 0 {
+                        if errno != EINTR {
+                            throw FilaFailure(errno: errno, path: temporary)
+                        }
+                    }
                 }
             } catch {
                 close(output)
@@ -229,10 +250,25 @@ extension LocalFileServiceAdapter: WritableFileService, DescriptorFileService {
                 try await access.setAttributes(.newItemDefaults, at: temporary)
                 try await access.rename(temporary, to: target, exclusive: true)
             case .replace:
-                // The atomic replace: the original's metadata is carried
-                // onto the new content, a missing original gets the
-                // defaults, and a directory at the name is refused.
-                try await access.replaceItem(at: target, withTemporary: temporary)
+                do {
+                    // The atomic replace: the original's metadata is carried
+                    // onto the new content, a missing original gets the
+                    // defaults, and a directory at the name is refused.
+                    try await access.replaceItem(at: target, withTemporary: temporary)
+                } catch let failure as FilaFailure where failure.systemError == ELOOP {
+                    // `replaceItem` refuses a link at the name, before it
+                    // touches anything — a save to one would land nowhere.
+                    // Replace replaces the name, as the copy job does: the
+                    // link gives way to the file and is never written through,
+                    // by the plain rename, which still asks the guard about the
+                    // name it replaces. Asked only after that refusal, so an
+                    // ordinary file costs no second round trip; an ELOOP with
+                    // no link at the name (an ancestor swapped for one) stays
+                    // the failure it was.
+                    guard try await Self.isLink(target, access: access) else { throw failure }
+                    try await access.setAttributes(.newItemDefaults, at: temporary)
+                    try await access.rename(temporary, to: target, exclusive: false)
+                }
             }
         } catch let failure as FilaFailure {
             try? await access.remove(temporary, directory: false)
@@ -266,6 +302,15 @@ extension LocalFileServiceAdapter: WritableFileService, DescriptorFileService {
             // The syscall reports against the source name; what was missing
             // is the source, what was in the way is the destination.
             throw Self.classify(failure, at: failure.systemError == ENOENT ? source : destination)
+        }
+    }
+
+    /// Whether a symbolic link is at `path`. Nothing there is not one.
+    private static func isLink(_ path: String, access: any LocalFileAccess) async throws -> Bool {
+        do {
+            return try await access.details(of: path).node.kind == .symbolicLink
+        } catch let failure as FilaFailure where failure.systemError == ENOENT {
+            return false
         }
     }
 

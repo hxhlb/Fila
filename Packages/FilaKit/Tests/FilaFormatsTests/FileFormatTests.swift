@@ -24,6 +24,16 @@ struct FileFormatTests {
         #expect(FileFormat.detect(name: "state.zqx") == nil)
     }
 
+    /// The system declares `.bin` as MacBinary, an archive. On a device it is
+    /// firmware or a dump, and its archive browser was empty or a failure.
+    @Test
+    func `A .bin is binary unless its bytes say archive`() {
+        #expect(FileFormat.detect(name: "firmware.bin") == .binary)
+        #expect(FileFormat.detect(head: Data(), name: "empty.bin") == .binary)
+        #expect(FileFormat.detect(head: Data((0 ..< 512).map { UInt8($0 % 251) }), name: "random.bin") == .binary)
+        #expect(FileFormat.detect(head: Data([0x50, 0x4B, 0x03, 0x04]), name: "bundle.bin") == .archive)
+    }
+
     @Test
     func `A NUL byte is what separates a binary from something worth editing`() {
         #expect(FileFormat.detect(head: Data("# Fila\nhello".utf8), name: "unnamed") == .text)

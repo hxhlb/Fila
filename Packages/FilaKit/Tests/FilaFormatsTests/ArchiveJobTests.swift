@@ -186,4 +186,183 @@ struct ArchiveJobTests {
             #expect(left.isEmpty)
         }
     }
+
+    /// A tar whose members are given by hand, so a name can be anything the
+    /// format allows — including a GNU long name far past `PATH_MAX`.
+    private func handmadeTar(_ members: [(name: String, contents: Data)]) -> Data {
+        var tar = Data()
+        for member in members {
+            if member.name.utf8.count > 100 {
+                var name = Data(member.name.utf8)
+                name.append(0)
+                tar += huntUstarHeader(name: "././@LongLink", type: "L", size: name.count)
+                tar += huntUstarPayload(name)
+            }
+            tar += huntUstarHeader(name: String(member.name.prefix(100)), type: "0", size: member.contents.count)
+            tar += huntUstarPayload(member.contents)
+        }
+        return tar + Data(count: 1024)
+    }
+
+    /// Every progress line and note goes to a daemon launchd kills at 6 MB,
+    /// and an archive chooses its own names.
+    @Test
+    func `A name too long to report is reported cut short and without control characters`() throws {
+        try withScratch { scratch in
+            let control = "ctl\u{1}name.txt"
+            let long = String(repeating: "\u{1}", count: 200_000)
+            let archive = scratch.appendingPathComponent("names.tar")
+            try handmadeTar([(control, Data("one".utf8)), (long, Data("two".utf8))]).write(to: archive)
+            let out = scratch.appendingPathComponent("out")
+            let result = run(JobRequest(kind: .extract, sources: [archive.path], destination: out.path, archive: ArchiveOptions()))
+
+            // Placement still uses the archive's own name.
+            #expect(try String(contentsOf: out.appendingPathComponent(control), encoding: .utf8) == "one")
+            #expect(result.outcome.systemError == ENAMETOOLONG, "\(result.outcome.code)")
+            let reported = result.progress.map(\.currentPath) + result.notes + [result.outcome.path ?? ""]
+            #expect(reported.contains { $0.contains("ctl\u{FFFD}name.txt") })
+            for text in reported {
+                #expect(text.utf8.count <= 2 * ArchivePath.maximumDisplayByteCount, "\(text.utf8.count) bytes")
+                #expect(!text.unicodeScalars.contains { $0.properties.generalCategory == .control })
+            }
+        }
+    }
+
+    /// Compress records no owner, so every member reads back as root's: a
+    /// setuid bit kept beside that is a setuid-root program for any extractor
+    /// that restores ownership as root.
+    @Test(arguments: [ArchiveFormat.tarGzip, .zip])
+    func `Compress leaves out setuid and setgid bits and keeps the sticky bit`(format: ArchiveFormat) throws {
+        try withScratch { scratch in
+            let shared = scratch.appendingPathComponent("shared")
+            try FileManager.default.createDirectory(at: shared, withIntermediateDirectories: true)
+            let tool = shared.appendingPathComponent("tool")
+            try Data("#!/bin/sh\n".utf8).write(to: tool)
+            #expect(chmod(tool.path, 0o4755) == 0)
+            #expect(chmod(shared.path, 0o1775) == 0)
+            var metadata = stat()
+            #expect(lstat(tool.path, &metadata) == 0 && metadata.st_mode & 0o4000 != 0, "the fixture carries the bit")
+
+            let archive = scratch.appendingPathComponent("shared.\(format.filenameExtension)")
+            let result = run(JobRequest(
+                kind: .compress, sources: [shared.path], destination: archive.path,
+                archive: ArchiveOptions(format: format),
+            ))
+            #expect(result.outcome.code == .success, "\(result.outcome)")
+            let entries = try withDescriptor(reading: archive) { try ArchiveReader.list(descriptor: $0) }
+            #expect(entries.map { $0.mode & 0o7777 } == [0o1775, 0o755])
+        }
+    }
+
+    /// "/" plus a combining mark is one `Character`, so a name split on
+    /// graphemes hides a `..` that the kernel walks.
+    @Test(arguments: [false, true])
+    func `A climb hidden behind a combining mark is skipped, not written above the destination`(organize: Bool) throws {
+        try withScratch { scratch in
+            let archive = scratch.appendingPathComponent("grapheme.tar")
+            try handmadeTar([
+                ("../\u{301}x", Data("x".utf8)),
+                ("a/../\u{301}../y", Data("y".utf8)),
+                ("ok.txt", Data("ok".utf8)),
+            ]).write(to: archive)
+            let out = scratch.appendingPathComponent("out")
+            try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+            let result = run(JobRequest(
+                kind: .extract, sources: [archive.path], destination: out.path,
+                archive: ArchiveOptions(organizeExtraction: organize),
+            ))
+            #expect(result.outcome.code == .success, "\(result.outcome)")
+            #expect(result.notes.count == 2, "\(result.notes)")
+            #expect(result.notes.allSatisfy { $0.contains("outside the destination") })
+            #expect(try String(contentsOf: out.appendingPathComponent("ok.txt"), encoding: .utf8) == "ok")
+            let above = try FileManager.default.contentsOfDirectory(atPath: scratch.path).sorted()
+            #expect(above == ["grapheme.tar", "out"])
+            #expect(try FileManager.default.contentsOfDirectory(atPath: out.path) == ["ok.txt"])
+        }
+    }
+
+    /// The race a less privileged process can run against a root extractor:
+    /// a folder the job has already placed members in is replaced by a link
+    /// out of the destination before the next member arrives.
+    @Test
+    func `A folder replaced by a link between members is not written through`() throws {
+        try withScratch { scratch in
+            let outside = scratch.appendingPathComponent("outside")
+            try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+            let archive = scratch.appendingPathComponent("race.tar")
+            try handmadeTar([
+                ("docs/a.txt", Data("a".utf8)),
+                ("../escape.txt", Data("x".utf8)),
+                ("docs/b.txt", Data("b".utf8)),
+                ("docs/sub/c.txt", Data("c".utf8)),
+            ]).write(to: archive)
+            let out = scratch.appendingPathComponent("out")
+            let docs = out.appendingPathComponent("docs")
+            var swapped = false
+            let job = ArchiveJob(
+                request: JobRequest(kind: .extract, sources: [archive.path], destination: out.path, archive: ArchiveOptions()),
+                operations: operations,
+            )
+            // The skipped climb's note arrives between `docs/a.txt` and
+            // `docs/b.txt`, synchronously, which is the window.
+            let outcome = job.run { _ in } note: { _ in
+                guard !swapped else { return }
+                swapped = true
+                _ = rename(docs.path, out.appendingPathComponent("moved").path)
+                _ = symlink(outside.path, docs.path)
+            }
+            #expect(swapped)
+            #expect(outcome.code == .success, "\(outcome)")
+            #expect(try FileManager.default.contentsOfDirectory(atPath: outside.path).isEmpty)
+            #expect(FileManager.default.fileExists(atPath: out.appendingPathComponent("moved/a.txt").path))
+        }
+    }
+
+    /// A backend confined to one folder extracts nowhere else, organised or
+    /// not: the workspace is made where the fence is enforced.
+    @Test(arguments: [false, true])
+    func `A confined backend refuses to extract outside its writable root`(organize: Bool) throws {
+        try withScratch { scratch in
+            let root = scratch.appendingPathComponent("root")
+            let outside = scratch.appendingPathComponent("outside")
+            for folder in [root, outside] {
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            }
+            let archive = root.appendingPathComponent("fenced.tar")
+            try handmadeTar([("a.txt", Data("a".utf8))]).write(to: archive)
+            let confined = FileOperations(bootstrapRoot: "", writableRoot: root.path)
+            let outcome = ArchiveJob(
+                request: JobRequest(kind: .extract, sources: [archive.path], destination: outside.path,
+                                    archive: ArchiveOptions(organizeExtraction: organize)),
+                operations: confined,
+            ).run { _ in }
+            #expect(outcome.systemError == EROFS, "\(outcome)")
+            #expect(try FileManager.default.contentsOfDirectory(atPath: outside.path).isEmpty)
+        }
+    }
+
+    /// New members belong to mobile, as every new file does, and keep the
+    /// archive's modes. Only observable as root.
+    @Test(.enabled(if: geteuid() == 0))
+    func `Extracted members are given to the new-item owner`() throws {
+        try withScratch { scratch in
+            let archive = scratch.appendingPathComponent("owned.zip")
+            try withDescriptor(writing: archive) { descriptor in
+                let writer = try ArchiveWriter(descriptor: descriptor, format: .zip)
+                try writer.addDirectory("folder", mode: 0o750)
+                try writer.addData("folder/file.txt", Data("x".utf8), mode: 0o640)
+                try writer.addSymbolicLink("folder/link", target: "file.txt")
+                try writer.finish()
+            }
+            #expect(run(JobRequest(kind: .extract, sources: [archive.path], destination: scratch.path, archive: ArchiveOptions(organizeExtraction: true))).outcome.code == .success)
+            for (path, mode) in [("folder", 0o750), ("folder/file.txt", 0o640), ("folder/link", nil)] {
+                var metadata = stat()
+                #expect(lstat(scratch.appendingPathComponent(path).path, &metadata) == 0)
+                #expect(metadata.st_uid == 501 && metadata.st_gid == 501, "\(path)")
+                if let mode {
+                    #expect(Int(metadata.st_mode & 0o7777) == mode, "\(path)")
+                }
+            }
+        }
+    }
 }

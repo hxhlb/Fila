@@ -167,6 +167,39 @@ enum FilePresentation {
         (node.name as NSString).pathExtension.lowercased()
     }
 
+    /// A name as a one-line label can show it. A name may hold any byte but
+    /// `/` and NUL, and a newline would end the label at its first line: a
+    /// file named `new`, newline, `line.txt` drew as `new`, which is a
+    /// different file's name. Each control
+    /// character becomes its Unicode control picture (␊ for a newline), and
+    /// the three other line breaks a label honours — NEL, the line and the
+    /// paragraph separator — become ␤. One UTF-16 unit for one, so a range
+    /// found in the real name still marks the same characters here. For
+    /// display only: every operation keeps the real name.
+    static func visibleName(_ name: String) -> String {
+        guard name.unicodeScalars.contains(where: isControl) else { return name }
+        var visible = String.UnicodeScalarView()
+        for scalar in name.unicodeScalars {
+            if scalar.value < 0x20, let picture = Unicode.Scalar(0x2400 + scalar.value) {
+                visible.append(picture)
+            } else if scalar.value == 0x7F, let picture = Unicode.Scalar(0x2421) {
+                visible.append(picture)
+            } else if isControl(scalar), let picture = Unicode.Scalar(0x2424) {
+                visible.append(picture)
+            } else {
+                visible.append(scalar)
+            }
+        }
+        return String(visible)
+    }
+
+    private static func isControl(_ scalar: Unicode.Scalar) -> Bool {
+        switch scalar.value {
+        case 0..<0x20, 0x7F, 0x85, 0x2028, 0x2029: true
+        default: false
+        }
+    }
+
     /// Empty for a directory. `st_size` on a directory is the directory's own
     /// size and means nothing to anybody, and the honest size of its contents
     /// is a recursive walk — so the row says nothing rather than printing a

@@ -1,6 +1,88 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "This image is too large to preview (%lld × %lld pixels). Open it as Hex to see its contents." : {
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "هذه الصورة أكبر من أن تُعاين (%1$lld × %2$lld بكسل). افتحها بصيغة Hex لعرض محتواها."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses Bild ist für eine Vorschau zu groß (%lld × %lld Pixel). Öffne die Datei als Hex, um ihren Inhalt zu sehen."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This image is too large to preview (%lld × %lld pixels). Open it as Hex to see its contents."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta imagen es demasiado grande para previsualizarla (%lld × %lld píxeles). Ábrela como Hex para ver su contenido."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette image est trop grande pour être prévisualisée (%lld × %lld pixels). Ouvrez le fichier en Hex pour voir son contenu."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questa immagine è troppo grande per l’anteprima (%lld × %lld pixel). Aprila come Hex per vederne il contenuto."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このイメージは大きすぎるためプレビューできません（%lld × %lld ピクセル）。内容を見るにはHexとして開いてください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 이미지는 너무 커서 미리 볼 수 없습니다(%lld × %lld 픽셀). 내용을 보려면 Hex로 여십시오."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esta imagem é grande demais para a pré-visualização (%lld × %lld pixels). Abra o arquivo como Hex para ver o conteúdo."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Это изображение слишком велико для просмотра (%lld × %lld пикселей). Откройте файл как Hex, чтобы увидеть содержимое."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Hình ảnh này quá lớn để xem trước (%lld × %lld pixel). Hãy mở dạng Hex để xem nội dung."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此图片过大，无法预览（%lld × %lld 像素）。以十六进制打开可查看其中的内容。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此影像太大，無法預覽（%lld × %lld 像素）。請以「十六進位」打開來查看其內容。"
+          }
+        }
+      }
+    }
   },
   "version" : "1.0"
 }

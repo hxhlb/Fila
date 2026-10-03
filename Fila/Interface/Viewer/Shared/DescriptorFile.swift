@@ -19,6 +19,9 @@ final class DescriptorFile {
     /// `st_size` at open. A viewer that windows over a file needs the size
     /// before it has read a byte of it, which is the only reason to keep it.
     let byteCount: Int64
+    /// The file this descriptor reached, as it was at open: what an editor
+    /// compares with what is there when it saves.
+    let identity: FileIdentity
 
     private let descriptor: Int32
     private var isClosed = false
@@ -36,6 +39,11 @@ final class DescriptorFile {
         }
         self.descriptor = descriptor
         byteCount = Int64(status.st_size)
+        identity = FileIdentity(
+            inode: UInt64(status.st_ino),
+            size: Int64(status.st_size),
+            modified: Double(status.st_mtimespec.tv_sec) + Double(status.st_mtimespec.tv_nsec) / 1_000_000_000,
+        )
     }
 
     static func open(
@@ -183,6 +191,13 @@ enum ViewerLimits {
 
     /// How much of an over-sized text file is shown before the tail is cut.
     static let textPreviewByteCount = PreviewLimits.textByteCount
+
+    /// The longest line the text view is given. Runestone lays a line out
+    /// whole, on the main thread: 32 MB with no line break took 850 MB and
+    /// eight seconds before the first frame. A file with a longer line is
+    /// shown up to the cut inside it, and editing is refused as it is for any
+    /// truncated file.
+    static let textLineByteCount = 1024 * 1024
 
     /// Above this a text file is shown with no grammar. Tree-sitter parses the
     /// whole string before the first line is drawn, and on the oldest hardware

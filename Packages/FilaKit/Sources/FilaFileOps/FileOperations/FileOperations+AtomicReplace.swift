@@ -34,7 +34,16 @@ public extension FileOperations {
             throw FilaFailure(code: .invalidRequest, systemError: EXDEV, path: temporary)
         }
 
-        let descriptor = Darwin.open(source, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+        // Everything below is relative to the shared directory, held open, or
+        // to the temporary itself: once the guard has decided, an ancestor
+        // swapped for a link cannot point the chown, the chmod or the rename
+        // at a same-named file somewhere else.
+        let directory = try filaOpenDirectory(FilaPath.directory(of: destination))
+        defer { close(directory) }
+        let sourceName = FilaPath.name(of: source)
+        let destinationName = FilaPath.name(of: destination)
+
+        let descriptor = openat(directory, sourceName, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
         guard descriptor >= 0 else { throw FilaFailure(errno: errno, path: source) }
         defer { close(descriptor) }
         var staged = stat()
@@ -42,7 +51,7 @@ public extension FileOperations {
         guard staged.st_mode & S_IFMT == S_IFREG else { throw FilaFailure(errno: EINVAL, path: source) }
 
         var found = stat()
-        let exists = lstat(destination, &found) == 0
+        let exists = fstatat(directory, destinationName, &found, AT_SYMLINK_NOFOLLOW) == 0
         if !exists, errno != ENOENT {
             throw FilaFailure(errno: errno, path: destination)
         }
@@ -57,31 +66,42 @@ public extension FileOperations {
             guard original.st_mode & S_IFMT != S_IFDIR else {
                 throw FilaFailure(errno: EISDIR, path: destination)
             }
+            // A link is not the file to save. The rename below would put a
+            // regular file in the link's place, carrying the link's 0755, and
+            // leave the file it names with the old bytes: an edit that reports
+            // success and lands nowhere. Callers save to the resolved target;
+            // one that did not is told so, with what `O_NOFOLLOW` says.
+            guard original.st_mode & S_IFMT != S_IFLNK else {
+                throw FilaFailure(errno: ELOOP, path: destination)
+            }
             // Metadata is written to the temporary before publication. It
             // must not share an inode with a name outside the writable root.
             _ = try resolveForWrite(source, changesInode: true)
             // ACLs and extended attributes through `copyfile(3)`, because a resource
             // fork is an extended attribute and can be megabytes — this streams
             // it and a hand-written loop would hold it.
+            let existing = openat(directory, destinationName, O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC)
+            guard existing >= 0 else { throw FilaFailure(errno: errno, path: destination) }
+            defer { close(existing) }
             try filaCheck(destination) {
-                copyfile(destination, source, nil, copyfile_flags_t(COPYFILE_ACL | COPYFILE_XATTR | COPYFILE_NOFOLLOW))
+                fcopyfile(existing, descriptor, nil, copyfile_flags_t(COPYFILE_ACL | COPYFILE_XATTR))
             }
             // Owner before mode: chown clears setuid and setgid.
-            try filaCheck(source) { lchown(source, original.st_uid, original.st_gid) }
-            try filaCheck(source) { lchmod(source, original.st_mode & 0o7777) }
+            try filaCheck(source) { fchown(descriptor, original.st_uid, original.st_gid) }
+            try filaCheck(source) { fchmod(descriptor, original.st_mode & 0o7777) }
             var times = [
                 filaTimeValue(filaSeconds(original.st_atimespec)),
                 filaTimeValue(filaSeconds(original.st_mtimespec)),
             ]
-            try filaCheck(source) { lutimes(source, &times) }
+            try filaCheck(source) { futimes(descriptor, &times) }
         } else if permissions == nil {
             _ = try resolveForWrite(source, changesInode: true)
-            try filaApplyAttributes(.newItemDefaults, to: source)
+            try filaApplyAttributes(.newItemDefaults, to: sourceName, in: directory, path: source, flags: nil)
         }
 
         if let permissions {
             _ = try resolveForWrite(source, changesInode: true)
-            try filaCheck(source) { lchmod(source, permissions) }
+            try filaCheck(source) { fchmod(descriptor, permissions) }
         }
 
         while fsync(descriptor) != 0 {
@@ -89,14 +109,14 @@ public extension FileOperations {
                 throw FilaFailure(errno: errno, path: source)
             }
         }
-        try filaCheck(destination) { renameat(AT_FDCWD, source, AT_FDCWD, destination) }
+        try filaCheck(destination) { renameat(directory, sourceName, directory, destinationName) }
 
         // BSD flags go on afterwards, to the file at its new name: `uchg` on
         // the temporary would refuse the very rename that puts it in place. An
         // original that was already immutable fails the rename above with
         // EPERM, which is the errno the app needs to offer clearing the flag.
         if let original, original.st_flags != 0 {
-            try filaCheck(destination) { lchflags(destination, original.st_flags) }
+            try filaCheck(destination) { fchflags(descriptor, original.st_flags) }
         }
     }
 }

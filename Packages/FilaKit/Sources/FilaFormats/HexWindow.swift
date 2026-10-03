@@ -36,7 +36,10 @@ public struct HexWindow: Sendable {
     /// last row is short still counts as a row.
     public func rowCount(bytesPerRow: Int = HexWindow.bytesPerRow) -> Int64 {
         guard bytesPerRow > 0 else { return 0 }
-        return (byteCount + Int64(bytesPerRow) - 1) / Int64(bytesPerRow)
+        // Not `(byteCount + width - 1) / width`: that sum overflows for a
+        // width near `Int.max`, and a trap is not a clamp.
+        let width = Int64(bytesPerRow)
+        return byteCount / width + (byteCount % width == 0 ? 0 : 1)
     }
 
     /// The bytes at `offset`, at most `count` of them, clamped to the file.
@@ -52,9 +55,14 @@ public struct HexWindow: Sendable {
     /// The bytes behind a range of rows, for a view that knows which rows it is
     /// about to draw and not which byte offsets those are.
     public func rows(_ range: Range<Int64>, bytesPerRow: Int = HexWindow.bytesPerRow) throws -> Data {
-        guard bytesPerRow > 0, !range.isEmpty else { return Data() }
-        let start = range.lowerBound * Int64(bytesPerRow)
-        let length = (range.upperBound - range.lowerBound) * Int64(bytesPerRow)
-        return try read(at: start, count: Int(min(length, byteCount)))
+        // Clamped to the rows the file has before any multiplication: a range
+        // computed from a typed offset can reach `Int64.max`, and every row
+        // inside the file starts at an offset that fits.
+        let rows = range.clamped(to: 0 ..< rowCount(bytesPerRow: bytesPerRow))
+        guard bytesPerRow > 0, range.lowerBound >= 0, !rows.isEmpty else { return Data() }
+        let width = Int64(bytesPerRow)
+        let start = rows.lowerBound * width
+        let (length, overflow) = Int64(rows.count).multipliedReportingOverflow(by: width)
+        return try read(at: start, count: Int(overflow ? byteCount : min(length, byteCount)))
     }
 }

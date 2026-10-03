@@ -135,7 +135,7 @@ public actor ThumbnailService {
             guard descriptor >= 0 else { throw POSIXError(.EBADF) }
             defer { close(descriptor) }
             let name = (path as NSString).lastPathComponent
-            guard case let (image, anchor)? = await render(descriptor: descriptor, name: name, maxPixelSize: maxPixelSize)
+            guard case let (image, anchor)? = try await render(descriptor: descriptor, name: name, maxPixelSize: maxPixelSize)
             else { return nil }
             return square ? SquareImage.make(image, anchor: anchor, maxSide: maxPixelSize) : image
         }
@@ -309,10 +309,14 @@ public actor ThumbnailService {
     /// length that is no longer true.
     ///
     /// The anchor is where a square of the picture belongs: a page's is its top.
-    private func render(descriptor: Int32, name: String, maxPixelSize: Int) async -> (CGImage, SquareImage.Anchor)? {
+    ///
+    /// Nil is remembered, so it is only ever said about the file: a failed
+    /// `fstat`, `dup` or read — a process at its descriptor limit, a file cut
+    /// short as it was read — throws instead, and the next pass tries again.
+    private func render(descriptor: Int32, name: String, maxPixelSize: Int) async throws -> (CGImage, SquareImage.Anchor)? {
         var status = stat()
-        guard fstat(descriptor, &status) == 0, status.st_mode & S_IFMT == S_IFREG,
-              status.st_size > 0 else { return nil }
+        guard fstat(descriptor, &status) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        guard status.st_mode & S_IFMT == S_IFREG, status.st_size > 0 else { return nil }
         let byteCount = Int64(status.st_size)
         guard byteCount <= PreviewLimits.fileByteCount else { return nil }
 
@@ -320,7 +324,8 @@ public actor ThumbnailService {
         let read = head.withUnsafeMutableBytes { raw in
             pread(descriptor, raw.baseAddress, FileFormat.detectionByteCount, 0)
         }
-        guard read > 0 else { return nil }
+        guard read >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        guard read > 0 else { throw POSIXError(.EAGAIN) }
 
         // Decoding is synchronous CPU work and runs off this actor, or a cache
         // lookup for the next row waits behind it.
@@ -329,18 +334,18 @@ public actor ThumbnailService {
         guard declared == detected else { return nil }
         switch detected {
         case .image:
-            return await Task.detached(priority: .utility) {
-                DescriptorImage.thumbnail(descriptor: descriptor, byteCount: byteCount, maxPixelSize: maxPixelSize)
+            return try await Task.detached(priority: .utility) {
+                try DescriptorImage.thumbnail(descriptor: descriptor, byteCount: byteCount, maxPixelSize: maxPixelSize)
             }.value.map { ($0, .center) }
         case .pdf:
-            return await Task.detached(priority: .utility) {
-                DescriptorImage.firstPage(descriptor: descriptor, byteCount: byteCount, maxPixelSize: maxPixelSize)
+            return try await Task.detached(priority: .utility) {
+                try DescriptorImage.firstPage(descriptor: descriptor, byteCount: byteCount, maxPixelSize: maxPixelSize)
             }.value.map { ($0, .top) }
         case .video:
             // Its own descriptor, because the asset outlives this call by as
             // long as AVFoundation keeps reading and `thumbnail` closes ours.
             let copy = dup(descriptor)
-            guard copy >= 0 else { return nil }
+            guard copy >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
             return await DescriptorAsset(descriptor: copy, name: name).frame(maxPixelSize: maxPixelSize).map { ($0, .center) }
         case .audio, .propertyList, .machO, .archive, .document, .sqlite, .text, .binary:
             // Audio artwork is a real thumbnail and deliberately absent: it

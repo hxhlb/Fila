@@ -18,7 +18,7 @@ extension UIViewController {
     /// nothing to choose. Both strings arrive resolved: a title is looked up by
     /// its caller, and a reason is computed copy, never a catalogue key.
     func presentMessage(_ title: String, message: String) {
-        let alert = AlertViewController(title: title, message: message) { context in
+        let alert = AlertViewController(title: .init(title), message: .init(message)) { context in
             context.allowSimpleDispose()
             context.addAction(title: String.LocalizationValue("OK"), attribute: .accent) {
                 context.dispose()

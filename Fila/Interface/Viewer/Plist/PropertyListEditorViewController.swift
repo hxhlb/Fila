@@ -353,15 +353,11 @@ final class PropertyListEditorViewController: TabContentViewController {
         guard document.isEditing, !document.isSaving else { return }
         guard row.value.editableText != nil else { return }
         let alert = AlertInputViewController(
-            title: row.label,
-            message: row.value.typeName,
-            // The computed title takes the plain-`String` overload, so the
-            // placeholder and the button title are resolved here with
-            // `String(localized:)` — the right overload, and visible to the
-            // extractor.
-            placeholder: String(localized: "Value"),
+            title: .init(row.label),
+            message: .init(row.value.typeName),
+            placeholder: String.LocalizationValue("Value"),
             text: row.value.editableText ?? "",
-            doneButtonText: String(localized: "Done"),
+            doneButtonText: String.LocalizationValue("Done"),
         ) { [weak self] text in
             guard let self else { return }
             guard let value = Self.reinterpret(text, like: row.value) else {

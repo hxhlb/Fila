@@ -167,7 +167,7 @@ extension FileActions {
 
     private func confirmLowSpace(_ message: String, extract: @escaping () -> Void) {
         guard let presenter = activePresenter else { return }
-        let alert = AlertViewController(title: String(localized: "Low Storage Space"), message: message) { context in
+        let alert = AlertViewController(title: String.LocalizationValue("Low Storage Space"), message: .init(message)) { context in
             context.addAction(title: String.LocalizationValue("Close")) { context.dispose() }
             context.addAction(title: String.LocalizationValue("Extract"), attribute: .accent) {
                 context.dispose { extract() }

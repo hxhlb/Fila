@@ -103,8 +103,8 @@ enum FileDrop {
     private static func askCopyOrMove(into folder: FileReference, from presenter: UIViewController) async -> TransferMode? {
         await CardQuestion.ask(whenGone: nil, from: presenter) { reply in
             let alert = AlertViewController(
-                title: folder.name,
-                message: String(localized: "Copy keeps the originals. Move takes them out of their current folder."),
+                title: .init(folder.name),
+                message: String.LocalizationValue("Copy keeps the originals. Move takes them out of their current folder."),
             ) { context in
                 context.allowSimpleDispose()
                 // Three actions stack: the choices first, Cancel last and plain.

@@ -949,7 +949,7 @@ extension PropertiesViewController: UITableViewDelegate {
         if case let .disclosure(_, _, action) = item.row {
             open(action)
         } else if item.section == .checksums, case let .fact(label, value, _) = item.row {
-            let alert = AlertViewController(title: label, message: value) { context in
+            let alert = AlertViewController(title: .init(label), message: .init(value)) { context in
                 context.addAction(title: String.LocalizationValue("Close")) { context.dispose() }
                 context.addAction(title: String.LocalizationValue("Copy"), attribute: .accent) {
                     context.dispose { UIPasteboard.general.string = value }

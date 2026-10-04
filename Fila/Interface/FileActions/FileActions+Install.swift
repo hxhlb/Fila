@@ -68,8 +68,8 @@ extension FileActions {
                 }
                 guard let presenter = activePresenter else { cleanup(); return }
                 let alert = AlertViewController(
-                    title: String(localized: "Install Package?"),
-                    message: String(localized: "Installs “\(name)” as root with dpkg. A faulty package can damage the system environment or leave the device unable to start. This cannot be undone."),
+                    title: String.LocalizationValue("Install Package?"),
+                    message: String.LocalizationValue("Installs “\(name)” as root with dpkg. A faulty package can damage the system environment or leave the device unable to start. This cannot be undone."),
                 ) { context in
                     context.addAction(title: String.LocalizationValue("Cancel")) { context.dispose { cleanup() } }
                     context.addAction(title: String.LocalizationValue("Install"), attribute: .accent) {
@@ -134,8 +134,8 @@ extension FileActions {
                 return
             }
             let alert = AlertViewController(
-                title: String(localized: "Install App?"),
-                message: String(localized: "The system installer will install “\(manifest.displayName)” (\(manifest.bundleIdentifier)), replacing any app with the same identifier. Apps not signed for this device require AppSync Unified."),
+                title: String.LocalizationValue("Install App?"),
+                message: String.LocalizationValue("The system installer will install “\(manifest.displayName)” (\(manifest.bundleIdentifier)), replacing any app with the same identifier. Apps not signed for this device require AppSync Unified."),
             ) { context in
                 context.addAction(title: String.LocalizationValue("Cancel")) {
                     context.dispose {
@@ -226,8 +226,8 @@ extension FileActions {
             return
         }
         let alert = AlertViewController(
-            title: String(localized: "Cannot Install"),
-            message: message,
+            title: String.LocalizationValue("Cannot Install"),
+            message: .init(message),
         ) { context in
             context.addAction(title: String.LocalizationValue("Cancel")) {
                 context.dispose()

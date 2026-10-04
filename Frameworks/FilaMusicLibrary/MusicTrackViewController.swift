@@ -214,12 +214,12 @@ final class MusicTrackViewController: TabContentTableViewController, TabContentD
         guard details.editableFields.contains(field) else { return }
         let original = details.values[field] ?? ""
         let alert = AlertInputViewController(
-            title: fieldTitle(field),
-            message: String(localized: "Edit this song’s details in the device’s music library.", bundle: bundle),
-            placeholder: fieldTitle(field),
+            title: .init(fieldTitle(field)),
+            message: .init(String(localized: "Edit this song’s details in the device’s music library.", bundle: bundle)),
+            placeholder: .init(fieldTitle(field)),
             text: original,
-            cancelButtonText: String(localized: "Cancel", bundle: bundle),
-            doneButtonText: String(localized: "Save", bundle: bundle),
+            cancelButtonText: .init(String(localized: "Cancel", bundle: bundle)),
+            doneButtonText: .init(String(localized: "Save", bundle: bundle)),
         ) { [weak self] value in
             guard let self, value != original else { return }
             save(field, original: original, value: value)

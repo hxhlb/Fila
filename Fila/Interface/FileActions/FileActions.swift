@@ -554,11 +554,11 @@ final class FileActions {
 
     func confirmDestruction(title: String, message: String, confirm: String, handler: @escaping () -> Void) {
         guard let presenter = activePresenter else { return }
-        let alert = AlertViewController(title: title, message: message) { context in
+        let alert = AlertViewController(title: .init(title), message: .init(message)) { context in
             context.addAction(title: String.LocalizationValue("Cancel")) {
                 context.dispose()
             }
-            context.addAction(title: confirm, attribute: .accent) {
+            context.addAction(title: .init(confirm), attribute: .accent) {
                 context.dispose { handler() }
             }
         }

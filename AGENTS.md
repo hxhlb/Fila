@@ -486,11 +486,14 @@ twelve languages the moment someone believed the marker was cruft.
 `Scripts/check-localization.sh` fails the build on a bare literal at
 these five labels.
 
-The package also has a `String` overload marked `@_disfavoredOverload`:
-any already-resolved string becomes the lookup key, so a raw English
+Since AlertController 3.0 there is no `String` overload. A `String`
+made at run time is wrapped with `.init(_:)`: it becomes the lookup key
+and shows as it is when the catalogue has no entry, so a raw English
 `String` variable ships English on a Chinese device. Computed copy
-(`FailureMessage.text(for:)`, a path) is the `String` overload on
-purpose — it is not a catalogue key.
+(`FailureMessage.text(for:)`, a path) is wrapped this way on purpose —
+it is not a catalogue key. So is a string resolved with
+`String(localized:bundle:)` in a module framework, whose catalogue is
+not the app's.
 
 The package has `.normal` and `.accent`, not `.destructive`. Permanent
 file deletion uses `PermanentDeleteConfirmation`, which constructs the standard

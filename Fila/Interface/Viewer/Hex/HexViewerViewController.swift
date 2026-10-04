@@ -172,8 +172,8 @@ final class HexViewerViewController: TabContentViewController {
 
     private func explain(_ message: String) {
         let alert = AlertViewController(
-            title: String(localized: "Invalid Offset"),
-            message: message,
+            title: String.LocalizationValue("Invalid Offset"),
+            message: .init(message),
         ) { [weak self] context in
             context.allowSimpleDispose()
             context.addAction(title: String.LocalizationValue("Close")) { context.dispose() }

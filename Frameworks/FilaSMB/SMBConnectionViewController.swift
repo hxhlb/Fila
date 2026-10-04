@@ -365,17 +365,19 @@ final class SMBConnectionViewController: UITableViewController {
 
     private func shareChoice(_ shares: [String]) -> UIViewController {
         AlertViewController(
-            title: String(localized: "Choose Share", bundle: bundle),
-            message: shares.isEmpty
-                ? String(
-                    localized: "This account has no listed shares. Type the share name instead.",
-                    bundle: bundle,
-                )
-                : String(localized: "Shared folders available to this account.", bundle: bundle),
+            title: .init(String(localized: "Choose Share", bundle: bundle)),
+            message: .init(
+                shares.isEmpty
+                    ? String(
+                        localized: "This account has no listed shares. Type the share name instead.",
+                        bundle: bundle,
+                    )
+                    : String(localized: "Shared folders available to this account.", bundle: bundle),
+            ),
         ) { [weak self] context in
             let choices = Array(shares.prefix(24))
             let cancel = {
-                context.addAction(title: String(localized: "Cancel", bundle: SMBBackend.bundle)) {
+                context.addAction(title: .init(String(localized: "Cancel", bundle: SMBBackend.bundle))) {
                     context.dispose()
                 }
             }
@@ -389,7 +391,7 @@ final class SMBConnectionViewController: UITableViewController {
                 // server happened to call "Cancel" would be rendered as the
                 // app's word for it. Cosmetic, and the package offers no
                 // way around it.
-                context.addAction(title: share, attribute: .accent) {
+                context.addAction(title: .init(share), attribute: .accent) {
                     context.dispose {
                         self?.profile.share = share
                         self?.tableView.reloadData()
@@ -454,16 +456,18 @@ final class SMBConnectionViewController: UITableViewController {
         let reason = BackendScreens.shell?.failureText(for: error) ?? error.localizedDescription
         let bundle = bundle
         let alert = AlertViewController(
-            title: String(localized: "Unable to Connect", bundle: bundle),
-            message: String(
-                localized: "\(reason)\n\nSave the share anyway? It can be opened later when the server is reachable.",
-                bundle: bundle,
+            title: .init(String(localized: "Unable to Connect", bundle: bundle)),
+            message: .init(
+                String(
+                    localized: "\(reason)\n\nSave the share anyway? It can be opened later when the server is reachable.",
+                    bundle: bundle,
+                ),
             ),
         ) { [weak self] context in
-            context.addAction(title: String(localized: "Cancel", bundle: bundle)) {
+            context.addAction(title: .init(String(localized: "Cancel", bundle: bundle))) {
                 context.dispose()
             }
-            context.addAction(title: String(localized: "Save Anyway", bundle: bundle), attribute: .accent) {
+            context.addAction(title: .init(String(localized: "Save Anyway", bundle: bundle)), attribute: .accent) {
                 context.dispose {
                     Task { @MainActor in await self?.commit(saving) }
                 }

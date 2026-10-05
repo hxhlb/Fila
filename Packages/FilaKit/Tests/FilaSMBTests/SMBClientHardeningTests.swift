@@ -400,10 +400,15 @@ final class RequestLog: @unchecked Sendable {
 
 /// A loopback TCP listener that reads SMB2 requests in their DirectTCP
 /// frames and answers each with what `reply` makes of it, framed the same
-/// way. One connection at a time; it stops when the client disconnects.
+/// way. One connection at a time, until the server is released.
+///
+/// The serving thread owns the listener and closes it itself; `deinit` only
+/// tells it to stop. Closing the listener from `deinit` let the thread call
+/// `accept` on a number another test's new socket had just been given, and
+/// answer that test's client with this test's script.
 final class ScriptedSMBServer: @unchecked Sendable {
     let port: Int
-    private let listener: Int32
+    private let stop: Int32
 
     init(reply: @escaping @Sendable (Data) -> Data) throws {
         let listener = socket(AF_INET, SOCK_STREAM, 0)
@@ -422,25 +427,46 @@ final class ScriptedSMBServer: @unchecked Sendable {
             Darwin.close(listener)
             throw POSIXError(.EADDRINUSE)
         }
-        self.listener = listener
+        var pipe: [Int32] = [-1, -1]
+        guard Darwin.pipe(&pipe) == 0 else {
+            let failure = POSIXError(POSIXErrorCode(rawValue: errno) ?? .EMFILE)
+            Darwin.close(listener)
+            throw failure
+        }
+        stop = pipe[1]
         port = Int(UInt16(bigEndian: address.sin_port))
+        let stopped = pipe[0]
         Thread.detachNewThread {
-            Self.serve(listener, reply)
+            Self.serve(listener, until: stopped, reply)
+            Darwin.close(listener)
+            Darwin.close(stopped)
         }
     }
 
+    /// The thread's poll sees the pipe's end of file.
     deinit {
-        shutdown(listener, SHUT_RDWR)
-        Darwin.close(listener)
+        Darwin.close(stop)
     }
 
     func client() -> SMBClient {
         SMBClient(host: "127.0.0.1", port: port)
     }
 
-    private static func serve(_ listener: Int32, _ reply: (Data) -> Data) {
+    private static func serve(_ listener: Int32, until stopped: Int32, _ reply: (Data) -> Data) {
         while true {
+            var events = [
+                pollfd(fd: listener, events: Int16(POLLIN), revents: 0),
+                pollfd(fd: stopped, events: Int16(POLLIN), revents: 0),
+            ]
+            let ready = poll(&events, 2, -1)
+            if ready < 0, errno == EINTR {
+                continue
+            }
+            guard ready > 0, events[1].revents == 0 else { return }
             let connection = accept(listener, nil, nil)
+            if connection < 0, errno == EINTR || errno == ECONNABORTED {
+                continue
+            }
             guard connection >= 0 else { return }
             var one: Int32 = 1
             setsockopt(connection, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))

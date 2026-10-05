@@ -260,7 +260,10 @@ struct LocalFileBackendPreferencesTests {
             }
         }
 
-        func latest(where condition: @escaping (BackendSidebar) -> Bool, within seconds: Double = 1) async -> BackendSidebar? {
+        /// Generous on purpose: every caller waits for something that does
+        /// happen, so the limit only matters on a starved machine, and a
+        /// check after the last sleep keeps a late wake-up from losing it.
+        func latest(where condition: @escaping (BackendSidebar) -> Bool, within seconds: Double = 10) async -> BackendSidebar? {
             let deadline = Date().addingTimeInterval(seconds)
             while Date() < deadline {
                 if let latest, condition(latest) {
@@ -268,7 +271,7 @@ struct LocalFileBackendPreferencesTests {
                 }
                 try? await Task.sleep(nanoseconds: 5_000_000)
             }
-            return nil
+            return latest.flatMap { condition($0) ? $0 : nil }
         }
 
         deinit { task?.cancel() }

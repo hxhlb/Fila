@@ -81,7 +81,7 @@ struct LocalFileBackendTests {
             let first = try await iterator.next()
             #expect(first?.count == FilaProtocol.directoryPageEntryCount)
         }
-        try await spy.settled()
+        #expect(await spy.closes(1))
         #expect(spy.closed == [spy.lastCursor])
 
         // Never asked for a page: nothing to close.
@@ -215,8 +215,19 @@ private final class RecordingAccess: LocalFileAccess, @unchecked Sendable {
         opened.last ?? 0
     }
 
-    /// Releases run on a detached task after an iterator is dropped; give
-    /// them a moment, bounded.
+    /// True once `count` releases have run. They run on a detached task after
+    /// an iterator is dropped; a passing wait returns as soon as they land,
+    /// and the bound is only slack for a starved machine.
+    func closes(_ count: Int, within seconds: Double = 10) async -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline, closed.count < count {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        return closed.count >= count
+    }
+
+    /// Time for a release that should not happen to show itself, before a
+    /// check that none did.
     func settled() async throws {
         for _ in 0 ..< 50 {
             try await Task.sleep(nanoseconds: 10_000_000)

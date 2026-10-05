@@ -91,9 +91,10 @@ check_minos() {
 
 # 3. Weak symbols are null on an OS older than the one that introduced them.
 #    Each has to be null-checked in source; this only says which they are.
+#    Only imports: a weak definition is in the binary itself, and is never null.
 check_weak_symbols() {
     local binary="$1" symbols
-    symbols="$(nm -m "$binary" 2>/dev/null | grep 'weak external' | grep -v 'FORCE_LOAD' || true)"
+    symbols="$(nm -m "$binary" 2>/dev/null | grep '(undefined) weak external' | grep -v 'FORCE_LOAD' || true)"
     if [[ -n "$symbols" ]]; then
         echo "note: $binary weak-imports symbols that are NULL below their own floor:" >&2
         echo "$symbols" | sed 's/^/    /' >&2

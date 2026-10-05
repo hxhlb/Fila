@@ -592,7 +592,15 @@ sentence. The same script fails on a missing or `""` message.
 - `make harness` — `swift test --package-path Packages/FilaKit`, then
   `Scripts/test-music-import.sh`. No device, no simulator. Run this before
   anything else; it is where a guard mistake, or a copy that loses an xattr,
-  gets caught.
+  gets caught. It runs one test per core (`TEST_WIDTH`, Swift Testing's
+  experimental maximum parallelization width, read from Swift 6.3 on):
+  started all at once on a three-core CI runner, the tests starved the
+  concurrency pool until timers and replies arrived tens of seconds late.
+  `@MainActor` suites still share the one main thread. A test that blocks a
+  thread for long — a semaphore, a child process, a spin loop — still takes
+  a whole core, so keep such waits short or move them onto a thread of their
+  own, and wait for a condition with a generous bound rather than sleeping a
+  fixed time and asserting it happened.
 - `make check` — project and packaging validation: the ten Xcode targets must
   all exist, versions and the deployment target must live in `Configuration/`,
   the string catalogues must match what the compiler extracted, and the

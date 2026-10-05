@@ -247,8 +247,12 @@ struct TerminalLaunchTests {
         let launch = try openTerminal(TerminalRequest(executable: "/bin/sh"))
         let holder = launch.process.processIdentifier
         let ended = DispatchGroup()
+        let endedAt = Moment()
         ended.enter()
-        launch.process.watch { ended.leave() }
+        launch.process.watch {
+            endedAt.mark()
+            ended.leave()
+        }
         defer {
             close(launch.descriptor)
             launch.process.terminate()
@@ -271,10 +275,14 @@ struct TerminalLaunchTests {
         let leader = try #require(pid_t(leaderLine.dropFirst(7)))
         try #require(child > 0 && getpgid(child) == leader)
 
+        let killedAt = DispatchTime.now().uptimeNanoseconds
         try #require(kill(leader, SIGKILL) == 0)
-        try #require(ended.wait(timeout: .now() + 0.25) == .timedOut)
         #expect(kill(child, 0) == 0)
-        #expect(ended.wait(timeout: .now() + 10) == .success)
+        try #require(ended.wait(timeout: .now() + 10) == .success)
+        // The holder gave the group its one-second grace before ending, measured
+        // between the two events rather than by when this thread next ran.
+        let grace = Double(endedAt.nanoseconds - killedAt) / 1_000_000_000
+        #expect(grace >= 0.9, "the session ended \(grace) s after its leader")
         #expect(kill(leader, 0) != 0)
         #expect(kill(holder, 0) != 0)
         let deadline = Date().addingTimeInterval(5)
@@ -669,5 +677,23 @@ struct TerminalLaunchTests {
                 #expect(output.contains(arguments + "MARK=login-interactive\nSHELL=\(shell)\nPID=unchanged\nDONE"), "\(output)")
             }
         }
+    }
+}
+
+/// When the session reported its end, set on the watcher's thread.
+private final class Moment: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: UInt64 = 0
+
+    var nanoseconds: UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+
+    func mark() {
+        lock.lock()
+        value = DispatchTime.now().uptimeNanoseconds
+        lock.unlock()
     }
 }

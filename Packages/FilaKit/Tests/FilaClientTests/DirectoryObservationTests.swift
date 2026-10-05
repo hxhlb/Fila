@@ -88,6 +88,19 @@ struct DirectoryObservationTests {
         deinit { task?.cancel() }
     }
 
+    /// True once `condition` holds, with the slack `hinted(after:within:)`
+    /// explains: a passing wait returns as soon as it does.
+    private func eventually(within seconds: Double = 10, _ condition: () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if condition() {
+                return true
+            }
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        return condition()
+    }
+
     @Test
     func `A subscription yields once at start, then only when hinted`() async {
         let observation = DirectoryObservation(interval: 3600)
@@ -121,16 +134,13 @@ struct DirectoryObservationTests {
         let two = Task {
             for try await _ in observation.subscribe("/tmp/a", stat: { clock.read() }) {}
         }
-        try await Task.sleep(nanoseconds: 50_000_000)
-        #expect(observation.subscriberCount == 2)
+        #expect(await eventually { observation.subscriberCount == 2 })
         #expect(observation.watchedDirectories == ["/tmp/a"])
         one.cancel()
-        try await Task.sleep(nanoseconds: 50_000_000)
-        #expect(observation.subscriberCount == 1)
+        #expect(await eventually { observation.subscriberCount == 1 })
         #expect(observation.watchedDirectories == ["/tmp/a"])
         two.cancel()
-        try await Task.sleep(nanoseconds: 50_000_000)
-        #expect(observation.subscriberCount == 0)
+        #expect(await eventually { observation.subscriberCount == 0 })
         #expect(observation.watchedDirectories.isEmpty)
     }
 
@@ -160,9 +170,14 @@ struct DirectoryObservationTests {
         observation.setPaused(true)
         // A stat already in flight when the pause landed still completes —
         // the read happens off the main actor and cancellation cannot recall
-        // it — so the count starts once that moment has passed.
-        try await Task.sleep(nanoseconds: 50_000_000)
-        let reads = clock.reads
+        // it — so the count starts once the reads have stopped moving. A
+        // poll that never stops keeps them moving, and fails below.
+        var reads = clock.reads
+        for _ in 0 ..< 200 {
+            try await Task.sleep(nanoseconds: 50_000_000)
+            guard clock.reads != reads else { break }
+            reads = clock.reads
+        }
         try await Task.sleep(nanoseconds: 100_000_000)
         #expect(clock.reads == reads, "no polling in the background")
         // Resuming hints once regardless, and polling restarts.

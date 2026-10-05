@@ -248,8 +248,19 @@ check:
 # guard mistake or a copy that loses an xattr gets caught, and it needs neither
 # a device nor a simulator — which is the whole reason the file layer lives in a
 # package instead of inside the daemon target.
+#
+# At most one test per core at a time. Swift Testing otherwise starts every
+# test at once, and on a three-core CI runner a resumed timer or a returned
+# reply waited behind hundreds of queued tests: a 0.1 s grace fired after
+# seconds and a listing idled out between two pages. With one test per pool
+# thread, a test that is waiting always has a pool thread to resume on, as long
+# as each uses one at a time; @MainActor suites still share the main thread.
+# The variable is experimental and read from Swift Testing 6.3 (Xcode 26.4)
+# on; an older toolchain ignores it without a word.
+TEST_WIDTH ?= $(shell sysctl -n hw.activecpu)
+
 harness:
-	swift test --package-path "$(PACKAGE_DIR)"
+	SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH=$(TEST_WIDTH) swift test --package-path "$(PACKAGE_DIR)"
 	Scripts/test-music-import.sh
 
 build: harness compile

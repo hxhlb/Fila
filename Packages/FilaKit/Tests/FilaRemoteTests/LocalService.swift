@@ -67,9 +67,13 @@ final class LocalService: RemoteFileService, @unchecked Sendable {
         }
         let operations = operations
         // `FileJob.run` blocks its thread from start to finish — that is how
-        // `copyfile`'s state callbacks work — so it goes somewhere it is
-        // allowed to.
-        let failure = await Task.detached { FileJob(request: job, operations: operations).run(report: { _ in }) }.value
+        // `copyfile`'s state callbacks work — so it gets a thread of its own,
+        // not one of the concurrency pool's few.
+        let failure = await withCheckedContinuation { continuation in
+            Thread {
+                continuation.resume(returning: FileJob(request: job, operations: operations).run(report: { _ in }))
+            }.start()
+        }
         guard failure.code == .success else { throw failure }
     }
 }

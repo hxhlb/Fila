@@ -86,12 +86,9 @@ struct DecisionRaceTests {
         let scratch = HuntScratch("replace-race")
         let operations = FileOperations(bootstrapRoot: "")
         let target = scratch.file("doc.txt", String(repeating: "A", count: 50000))
-        let stop = NSLock()
-        var done = false
+        let stop = StopSignal()
         let deleter = Thread {
-            while true {
-                stop.lock(); let finished = done; stop.unlock()
-                if finished { break }
+            while !stop.isRaised {
                 _ = huntRunJob(JobRequest(kind: .delete, sources: [target]), operations)
             }
         }
@@ -109,7 +106,7 @@ struct DecisionRaceTests {
                 #expect(bytes.count == 50000 && Set(bytes).count == 1, "torn content at \(index)")
             }
         }
-        stop.lock(); done = true; stop.unlock()
+        stop.raise()
         while !deleter.isFinished { usleep(1000) }
         let leftovers = ((try? FileManager.default.contentsOfDirectory(atPath: scratch.root)) ?? []).filter { $0.hasPrefix(".fila-tmp-") }
         #expect(leftovers.isEmpty, "\(leftovers.prefix(3))")
@@ -236,13 +233,10 @@ struct DecisionRaceTests {
             for index in 0 ..< 30 { scratch.file("tree/d\(folder)/sub/f\(index)", "x", mode: 0o644) }
         }
         let operations = FileOperations(bootstrapRoot: "")
-        let lock = NSLock()
-        var running = true
+        let stop = StopSignal()
         let swapper = Thread {
             var flip = false
-            while true {
-                lock.lock(); let go = running; lock.unlock()
-                if !go { break }
+            while !stop.isRaised {
                 let victim = tree + "/d\(Int.random(in: 0 ..< 40))/sub"
                 if !flip, rename(victim, victim + "-real") == 0 {
                     _ = symlink(outside, victim)
@@ -266,8 +260,26 @@ struct DecisionRaceTests {
                 break
             }
         }
-        lock.lock(); running = false; lock.unlock()
+        stop.raise()
         while !swapper.isFinished { usleep(1000) }
         #expect(permissions(of: outside) == 0o755)
+    }
+}
+
+/// Tells a racing thread to stop, read under a lock on every turn of its loop.
+private final class StopSignal: @unchecked Sendable {
+    private let lock = NSLock()
+    private var raised = false
+
+    var isRaised: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return raised
+    }
+
+    func raise() {
+        lock.lock()
+        raised = true
+        lock.unlock()
     }
 }

@@ -143,21 +143,36 @@ final class TabSwitcherViewController: UIViewController {
     /// shows of it.
     static let thumbnailAspect: CGFloat = 0.85
 
-    /// The largest `thumbnailAspect` rectangle inside `bounds`, anchored to
-    /// its top and leading edges: the region of the page a card's thumbnail
-    /// displays of it. Leading rather than centred because the safe-area rect
-    /// is horizontally asymmetric exactly where something sits beside the
-    /// page — a sidebar column on one side, a home-indicator inset on the
-    /// other — and landscape constrains the height, so a centred crop there
-    /// starts mid-content and reads as the preview sitting offset.
-    static func thumbnailRegion(in bounds: CGRect) -> CGRect {
-        var width = bounds.width
+    /// The widest stretch of a page a thumbnail shows: about a phone's width.
+    /// A card is a few hundred points wide, and a full-width iPad page shrunk
+    /// into one draws its rows too small to read.
+    static let thumbnailPageWidth: CGFloat = 440
+
+    /// The width a thumbnail is drawn at: about the widest card at ordinary
+    /// text sizes.
+    static let thumbnailRenderWidth: CGFloat = 320
+
+    /// The largest `thumbnailAspect` rectangle inside `bounds`, no wider than
+    /// `thumbnailPageWidth`, anchored to its top and leading edges: the
+    /// region of the page a card's thumbnail displays of it. Leading rather
+    /// than centred because the safe-area rect is horizontally asymmetric
+    /// exactly where something sits beside the page — a sidebar column on
+    /// one side, a home-indicator inset on the other — and landscape
+    /// constrains the height, so a centred crop there starts mid-content and
+    /// reads as the preview sitting offset. Leading is the right edge in a
+    /// right-to-left language, where each row starts with its name.
+    static func thumbnailRegion(
+        in bounds: CGRect,
+        direction: UIUserInterfaceLayoutDirection,
+    ) -> CGRect {
+        var width = min(bounds.width, thumbnailPageWidth)
         var height = width * thumbnailAspect
         if height > bounds.height {
             height = bounds.height
             width = height / thumbnailAspect
         }
-        return CGRect(x: bounds.minX, y: bounds.minY, width: width, height: height)
+        let x = direction == .rightToLeft ? bounds.maxX - width : bounds.minX
+        return CGRect(x: x, y: bounds.minY, width: width, height: height)
     }
 
     /// The frame of the card's page thumbnail — not the whole card, whose

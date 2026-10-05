@@ -367,11 +367,17 @@ final class TabContainerViewController: UIViewController {
         // — the zoom can land on the same pixels in any geometry.
         let full = surface.bounds.inset(by: surface.safeAreaInsets)
         guard full.width > 0, full.height > 0 else { return }
-        let bounds = TabSwitcherViewController.thumbnailRegion(in: full)
-        let scale = min(1, 360 / bounds.width)
+        let bounds = TabSwitcherViewController.thumbnailRegion(
+            in: full,
+            direction: surface.effectiveUserInterfaceLayoutDirection,
+        )
+        // Drawn at about the widest card's size and the screen's density,
+        // capped at 2x: sixteen tabs of 3x pages would hold tens of megabytes
+        // of pictures.
+        let scale = min(1, TabSwitcherViewController.thumbnailRenderWidth / bounds.width)
         let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
         let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
+        format.scale = min(surface.traitCollection.displayScale, 2)
         format.opaque = true
         var drewContent = false
         let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
@@ -491,7 +497,10 @@ final class TabContainerViewController: UIViewController {
         guard let page = (controller as? UINavigationController)?.topViewController?.viewIfLoaded
         else { return view.bounds }
         let full = page.convert(page.bounds.inset(by: page.safeAreaInsets), to: view)
-        return TabSwitcherViewController.thumbnailRegion(in: full)
+        return TabSwitcherViewController.thumbnailRegion(
+            in: full,
+            direction: page.effectiveUserInterfaceLayoutDirection,
+        )
     }
 
     /// Scales `page` so that its `content` region lands exactly on `card` —

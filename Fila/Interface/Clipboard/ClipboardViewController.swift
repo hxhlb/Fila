@@ -268,10 +268,14 @@ final class ClipboardViewController: TabContentViewController {
 
     // MARK: - Actions
 
+    /// The row leaves the list now, not when the survey next reports: a
+    /// swipe that says it removed a row must find the row already gone.
+    /// `removeMissing` does the same.
     private func remove(_ item: FileLocation) {
         clipboard.remove(item)
         statuses[item] = nil
         reload()
+        applySnapshot()
     }
 
     private func removeMissing() {
@@ -279,6 +283,7 @@ final class ClipboardViewController: TabContentViewController {
             clipboard.remove(item)
         }
         reload()
+        applySnapshot()
     }
 
     private func confirmClear() {

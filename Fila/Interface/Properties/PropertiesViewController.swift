@@ -249,16 +249,14 @@ final class PropertiesViewController: TabContentViewController {
             guard !Task.isCancelled, let self, details.path == path, let image else { return }
             previewImage = image
             previewMaximumSide = maximumSide
-            // The summary identity is stable; refresh only its visible cell.
-            for case let cell as PropertiesPreviewCell in self.table.visibleCells {
-                cell.show(
-                    image: image,
-                    title: URL(fileURLWithPath: path).lastPathComponent,
-                    kind: Self.name(of: node.kind),
-                    maximumSide: previewMaximumSide,
-                )
-            }
-            table.performBatchUpdates(nil)
+            // The summary identity is stable, so the data source that owns the
+            // table redraws and resizes its one cell. A batch update called on
+            // the table directly crashed the page on iOS 16.
+            var snapshot = dataSource.snapshot()
+            let summary = Item(section: .item, row: .summary)
+            guard snapshot.indexOfItem(summary) != nil else { return }
+            snapshot.reconfigureItems([summary])
+            await dataSource.apply(snapshot, animatingDifferences: false)
         }
     }
 
@@ -291,18 +289,20 @@ final class PropertiesViewController: TabContentViewController {
         table.register(UITableViewCell.self, forCellReuseIdentifier: "Row")
         table.register(PropertiesPreviewCell.self, forCellReuseIdentifier: "Preview")
         dataSource = TitledTableDataSource(tableView: table) { [weak self] table, indexPath, item in
-            let cell = table.dequeueReusableCell(withIdentifier: "Row", for: indexPath)
+            // One dequeue per call, of the row's own kind: a reconfigure hands
+            // back the cell already on screen, and UIKit aborts when the
+            // provider asks for a second cell or one of another identifier.
+            let cell = table.dequeueReusableCell(
+                withIdentifier: item.row == .summary ? "Preview" : "Row",
+                for: indexPath,
+            )
             cell.accessoryView = nil
             cell.accessoryType = .none
             cell.selectionStyle = .none
 
             switch item.row {
             case .summary:
-                guard let self else { return cell }
-                let preview = table.dequeueReusableCell(
-                    withIdentifier: "Preview",
-                    for: indexPath,
-                ) as! PropertiesPreviewCell
+                guard let self, let preview = cell as? PropertiesPreviewCell else { return cell }
                 preview.show(
                     image: previewImage ?? FilePresentation.largeImage(for: FilePresentation.icon(for: details.node)),
                     title: URL(fileURLWithPath: details.path).lastPathComponent,

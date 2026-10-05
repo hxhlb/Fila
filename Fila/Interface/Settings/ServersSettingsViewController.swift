@@ -128,7 +128,8 @@ final class ServersSettingsViewController: UITableViewController {
         let setup = setups[indexPath.section]
         guard case let .server(id) = rows(for: setup)[indexPath.row] else { return nil }
         let remove = UIContextualAction(style: .destructive, title: String(localized: "Remove")) { [weak self] _, _, done in
-            done(true)
+            // Nothing is removed yet: the card asks first.
+            done(false)
             self?.confirmRemoval(of: id, through: setup)
         }
         return UISwipeActionsConfiguration(actions: [remove])

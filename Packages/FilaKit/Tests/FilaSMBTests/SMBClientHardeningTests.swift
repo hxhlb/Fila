@@ -305,7 +305,10 @@ struct SMBClientHardeningTests {
         let task = Task {
             try await connection.run("probe", path: nil, timeout: 30, on: client) {
                 started.set()
-                await Self.uncancellableWait(1)
+                // Far past the grace: on a loaded CI runner the grace's own
+                // wake-up arrived more than a second late, and a body of one
+                // second answered first.
+                await Self.uncancellableWait(10)
                 return 7
             }
         }

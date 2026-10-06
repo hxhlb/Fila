@@ -615,7 +615,7 @@ final class FileBrowserViewController: BackendListViewController<FileNode>, TabC
         let refreshAppFolders = !self.appFolders.isEmpty || !appFolders.isEmpty
         self.appFolders = appFolders
         if refreshAppFolders {
-            await reconfigureVisibleItems()
+            reconfigureVisibleItems()
         }
     }
 

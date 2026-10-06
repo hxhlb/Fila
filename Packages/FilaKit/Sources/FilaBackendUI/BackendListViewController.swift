@@ -653,10 +653,15 @@
         }
 
         /// Reconfigures every visible row — decorations arrived, say.
-        public func reconfigureVisibleItems() async {
+        public func reconfigureVisibleItems() {
             var snapshot = dataSource.snapshot()
             snapshot.reconfigureItems(snapshot.itemIdentifiers)
-            await dataSource.apply(snapshot, animatingDifferences: false)
+            // On the main thread, where `show(_:animated:reloadingData:completion:)`
+            // applies: UIKit aborts when one data source is applied from two
+            // queues (#30). The `async` overload is not main-actor isolated and
+            // would run on a cooperative thread; `completion:` names the
+            // synchronous one.
+            dataSource.apply(snapshot, animatingDifferences: false, completion: nil)
         }
     }
 

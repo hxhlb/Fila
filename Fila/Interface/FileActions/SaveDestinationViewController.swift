@@ -347,7 +347,9 @@ final class SaveDestinationViewController: UIViewController {
                 snapshot.appendItems(folders.map(\.name))
                 let existing = Set(dataSource.snapshot().itemIdentifiers)
                 snapshot.reconfigureItems(snapshot.itemIdentifiers.filter(existing.contains))
-                await dataSource.apply(snapshot, animatingDifferences: true)
+                // On the main thread, like every other apply to this data
+                // source: see the note in `PropertiesViewController.loadPreview()`.
+                dataSource.apply(snapshot, animatingDifferences: true, completion: nil)
                 guard !Task.isCancelled else { return }
                 list.refreshControl?.endRefreshing()
                 availability = .ready

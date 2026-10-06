@@ -256,7 +256,12 @@ final class PropertiesViewController: TabContentViewController {
             let summary = Item(section: .item, row: .summary)
             guard snapshot.indexOfItem(summary) != nil else { return }
             snapshot.reconfigureItems([summary])
-            await dataSource.apply(snapshot, animatingDifferences: false)
+            // One data source, one queue: UIKit accepts an apply from any queue
+            // but aborts when applies to the same data source come from two
+            // (#30). `rebuild()` applies on the main thread, so this does too.
+            // The `async` overload is not main-actor isolated and ran on a
+            // cooperative thread; `completion:` names the synchronous one.
+            dataSource.apply(snapshot, animatingDifferences: false, completion: nil)
         }
     }
 

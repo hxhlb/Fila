@@ -64,6 +64,18 @@ if [[ -n "$progress_hits" ]]; then
     echo "$progress_hits" >&2
 fi
 
+# Every screen applies its diffable data source on the main thread, and UIKit
+# requires one data source's applies to come from one queue: iOS 16 aborted
+# when an apply from a cooperative thread overlapped one on the main thread
+# (#30). The awaited `async` overload is not main-actor isolated and runs on a
+# cooperative thread, so it is refused here; `completion:` names the
+# synchronous overload.
+async_apply_hits="$(search 'await[^=]*\.apply(SnapshotUsingReloadData)?\(' "${ui_roots[@]}" || true)"
+if [[ -n "$async_apply_hits" ]]; then
+    error "apply a diffable snapshot on the main thread like the rest of its data source (pass completion:); found an awaited apply:"
+    echo "$async_apply_hits" >&2
+fi
+
 indicator_hits="$(search 'import SPIndicator|SPIndicatorView' "${ui_roots[@]}" \
     | grep -v 'Fila/Interface/Feedback/Toast.swift' || true)"
 if [[ -n "$indicator_hits" ]]; then

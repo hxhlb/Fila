@@ -298,11 +298,15 @@ final class BrowserTabStore {
     /// because the snapshot is the thing the user actually rearranged. Ignored
     /// unless it is the same set: a reorder that has gained or lost a tab is a
     /// reorder racing a close, and the close wins.
+    ///
+    /// Not announced: the switcher's grid already shows this order, and it
+    /// calls from inside its data source's reorder commit, where a snapshot
+    /// applied in answer is the reentrant apply UIKit aborts on (#31).
     func reorder(to order: [UUID]) {
         guard Set(order) == Set(tabs.map(\.id)) else { return }
         let tabs = tabs
         loaded.tabs = order.compactMap { id in tabs.first { $0.id == id } }
-        save()
+        save(notify: false)
     }
 
     /// Writes down where tab `id` is. Called by the shell whenever the live
@@ -515,9 +519,9 @@ final class BrowserTabStore {
         }
     }
 
-    /// `notify: false` for the one caller that is recording what is already on
-    /// screen: telling the switcher to redraw for a scroll position it cannot
-    /// see would be a notification per scroll.
+    /// `notify: false` for the callers recording what is already on screen —
+    /// a scroll position, a drag's new order: telling the switcher to redraw
+    /// for a scroll position it cannot see would be a notification per scroll.
     private func save(notify: Bool = true) {
         let state = loaded
         defaults.set(try? JSONEncoder().encode(state.tabs), forKey: Key.of(Key.tabs, sessionIdentifier))

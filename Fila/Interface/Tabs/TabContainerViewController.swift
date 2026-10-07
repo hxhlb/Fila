@@ -379,13 +379,24 @@ final class TabContainerViewController: UIViewController {
         let format = UIGraphicsImageRendererFormat()
         format.scale = min(surface.traitCollection.displayScale, 2)
         format.opaque = true
+        // The whole page, scaled and offset so that `bounds` fills the image:
+        // the translate-then-scale on the rect, the way a thumbnail capture
+        // spells it, rather than on the context.
+        let target = surface.bounds.offsetBy(dx: -bounds.minX, dy: -bounds.minY)
+            .applying(CGAffineTransform(scaleX: scale, y: scale))
         var drewContent = false
         let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
-            UIColor.systemBackground.setFill()
+            UIColor.systemBackground.resolvedColor(with: surface.traitCollection).setFill()
             context.fill(CGRect(origin: .zero, size: size))
-            context.cgContext.scaleBy(x: scale, y: scale)
-            context.cgContext.translateBy(x: -bounds.minX, y: -bounds.minY)
-            drewContent = surface.drawHierarchy(in: surface.bounds, afterScreenUpdates: false)
+            // Take the frame already on screen. The render server refuses when
+            // it has none to hand back, which left every card on its folder
+            // placeholder on an iOS 16 phone (#31). Then force a render of the
+            // page as it stands, at the cost of one synchronous commit.
+            drewContent = surface.drawHierarchy(in: target, afterScreenUpdates: false)
+            if !drewContent {
+                drewContent = surface.drawHierarchy(in: target, afterScreenUpdates: true)
+                FilaLog.info("tab preview: on-screen frame refused, forced render \(drewContent ? "drawn" : "refused")")
+            }
         }
         if drewContent {
             tabs[id]?.preview = image

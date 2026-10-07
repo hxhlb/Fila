@@ -957,7 +957,7 @@ extension PropertiesViewController: UITableViewDelegate {
             let alert = AlertViewController(title: .init(label), message: .init(value)) { context in
                 context.addAction(title: String.LocalizationValue("Close")) { context.dispose() }
                 context.addAction(title: String.LocalizationValue("Copy"), attribute: .accent) {
-                    context.dispose { UIPasteboard.general.string = value }
+                    context.dispose { Self.copy(value) }
                 }
             }
             present(alert, animated: true)
@@ -972,16 +972,54 @@ extension PropertiesViewController: UITableViewDelegate {
         guard let row = dataSource.itemIdentifier(for: indexPath)?.row else { return nil }
         let value: String
         switch row {
-        case let .fact(_, text, _), let .disclosure(_, text, _): value = text
-        default: return nil
+        case .summary:
+            return nameAndPathMenu()
+        case let .fact(_, text, _):
+            value = text
+        case let .disclosure(label, text, action):
+            switch action {
+            // The line under these titles says what the row opens or starts.
+            // It is not a fact about the file, and nobody wants it pasted (#32).
+            case .advanced, .calculateChecksums, .cancelChecksums:
+                return nil
+            // The row is the attribute; its size is the least useful thing on it.
+            case .extendedAttribute:
+                value = label
+            case .mode, .owner, .group, .flags:
+                value = text
+            }
+        case .recursive, .note:
+            return nil
         }
         guard !value.isEmpty else { return nil }
         return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
             UIMenu(children: [
                 UIAction(title: String(localized: "Copy"), image: UIImage(systemName: "doc.on.doc")) { _ in
-                    UIPasteboard.general.string = value
+                    Self.copy(value)
                 },
             ])
         }
+    }
+
+    /// The card at the top is the file's name, and the path under it is the
+    /// section's footer, which a table cannot give a menu. Both are copied from
+    /// here, with the same two entries the file's own Copy menu has.
+    private func nameAndPathMenu() -> UIContextMenuConfiguration {
+        let path = details.path
+        return UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in
+            UIMenu(title: String(localized: "Copy"), children: [
+                UIAction(title: String(localized: "File Name"), image: UIImage(systemName: "textformat")) { _ in
+                    Self.copy((path as NSString).lastPathComponent)
+                },
+                UIAction(title: String(localized: "Path"), image: UIImage(systemName: "text.quote")) { _ in
+                    Self.copy(path)
+                },
+            ])
+        }
+    }
+
+    private static func copy(_ text: String) {
+        UIPasteboard.general.string = text
+        Toast.show(String(localized: "Copied"))
     }
 }

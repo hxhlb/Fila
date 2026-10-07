@@ -160,10 +160,13 @@ struct RemoteDirectoryObservationTests {
         let task = a.consume(observation.subscribe("d", stamp: stamps.stamp("d")))
         try await a.wait(for: 1)
         observation.setPaused(true)
-        let readsWhilePaused = stamps.reads
+        // A tick already past its cancellation check has asked for its stamp,
+        // and on a starved pool that read lands after this count. It is the
+        // last one: the pause drops its answer and its watch ends there.
+        let readsAtPause = stamps.reads
         stamps.set("d", "1")
         try await Task.sleep(nanoseconds: 150_000_000)
-        #expect(stamps.reads == readsWhilePaused)
+        #expect(stamps.reads <= readsAtPause + 1)
         #expect(a.count == 1)
         let late = Collector()
         let lateTask = late.consume(observation.subscribe("d", stamp: stamps.stamp("d")))

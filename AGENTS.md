@@ -1,6 +1,6 @@
 # Fila — Agent Notes
 
-Root file manager for jailbroken iOS 15+ — roothide and rootless bootstraps
+Root file manager for iOS 15+ on custom firmware — roothide and rootless bootstraps
 both. **iOS only**: there is no Mac Catalyst build and no macOS product.
 (`Package.swift` still declares a `.macCatalyst` platform so the package
 resolves; that is not a product and nothing builds one.) The
@@ -64,7 +64,7 @@ between the app and the kernel with nothing in between.
   Provider that did is gone. It stays because it is the fence a future
   single-folder backend would need, and its tests still prove it. A root file
   manager confined to its own bootstrap is not one: `/var/mobile` is outside every
-  jailbreak's install root, and refusing to write there reads as "no
+  bootstrap's install root, and refusing to write there reads as "no
   permission" on every operation. What protects the device is `FilaGuard`'s
   destruction list on every layout, and the bootstrap node itself can never
   be destroyed. The trash of a relocated daemon lives under its install root
@@ -137,7 +137,7 @@ between the app and the kernel with nothing in between.
   `<volume mount point>/.fila-trash` otherwise, is instant and undoable; permanent
   delete is an explicit action, and the default is a setting. The names live in
   `FilaTrash` (FilaProtocol), never the system `.Trash/<uid>`: this is a
-  jailbroken device and nothing else owns that layout. The job writes the
+  device running custom firmware and nothing else owns that layout. The job writes the
   item's origin onto it as the `wiki.qaq.fila.origin` xattr; *Put Back* inside
   the trash reads it and then removes it, so there is no index to drift. Inside
   the trash the browser offers Put Back, Delete Permanently and Empty Trash,
@@ -193,7 +193,7 @@ between the app and the kernel with nothing in between.
   Never introduce XcodeGen/Tuist. `make check` fails if Xcode rewrites
   `objectVersion` on a GUI save; revert that line.
 - **The daemon being absent is never surfaced as an error.** `filad` is
-  on-demand: a miss means launchd has not spawned it yet, and a jailbreak that
+  on-demand: a miss means launchd has not spawned it yet, and a device that
   just resprang takes a moment. There is nothing a user could do about it, so
   the app keeps retrying and keeps saying *Connecting…*. Do not add a failure
   screen, and do not "fix" the simulator by faking the daemon in the app.
@@ -636,7 +636,7 @@ sentence. The same script fails on a missing or `""` message.
   There used to be a Mac Catalyst build here — `make mac` — and it was the one
   place the real daemon ran off-device. It is gone, deliberately: this is not
   software for a Mac. The cost is worth stating rather than rediscovering:
-  **a jailbroken iOS device or vphone is required to run `filad`.** The
+  **an iOS device on custom firmware, or a vphone, is required to run `filad`.** The
   in-process backend covers the shell, not the privileged XPC path.
 - `make deb` — build, ad-hoc sign with ldid, package for `FLAVOR` (default
   `roothide`, `iphoneos-arm64e`, rootful paths; `FLAVOR=rootless` packages the
@@ -657,7 +657,7 @@ sentence. The same script fails on a missing or `""` message.
   entitlement. The
   user approved this shared-container workflow: the sideloading tool must
   provision the same `APP_GROUP_IDENTIFIER` for the app and the embedded
-  Save action when re-signing. Jailbreak/private entitlements stay excluded
+  Save action when re-signing. Custom-firmware and private entitlements stay excluded
   from the ordinary IPA and from the extension.
   Path helpers: `make print-tipa-path`, `make print-ipa-path`.
 - `make packages` (`make all`) — all four in one go: the full build, then the
@@ -696,7 +696,7 @@ sentence. The same script fails on a missing or `""` message.
   beside it, so a caller cannot read the polarity backwards.
 
   **The selection rule is a grace period, and it is deliberately not a
-  timeout and deliberately not a count.** Not a timeout, because a jailbreak
+  timeout and deliberately not a count.** Not a timeout, because a device
   that has just resprung takes seconds to register the Mach service and an app
   that gave up on a timer would silently demote a root file manager to an
   unprivileged one — being demoted without being told is worse than waiting.
@@ -751,7 +751,7 @@ sentence. The same script fails on a missing or `""` message.
 - Both packagers ad-hoc sign every library under `Fila.app/Frameworks` first
   (`Scripts/sign-frameworks.sh`). The unsigned build leaves the Swift
   compatibility dylibs the toolchain copies in for older OSes carrying Apple's
-  own signature, which a jailbroken iOS 18 refuses outside the system: dyld
+  own signature, which iOS 18 on custom firmware refuses outside the system: dyld
   halts the app at launch with "code signature invalid", and iOS 26 never
   loads the library, so the crash shows only on the older device.
 - Both packagers re-read the entitlements back out of the signed binaries and
@@ -759,7 +759,7 @@ sentence. The same script fails on a missing or `""` message.
   not break the build: it makes the daemon silently refuse the app, or the
   user's own signing step refuse the archive, which looks like a bug anywhere
   but where it is. The two archives fail in opposite directions, so
-  `verify-ipa.sh` checks jailbreak entitlements for absence on one side and
+  `verify-ipa.sh` checks custom-firmware entitlements for absence on one side and
   presence on the other. Both wrappers require a matching standard App Group
   on the containing app and on the one embedded extension, `FilaSaveAction`,
   which shares that container. `Scripts/sign-extensions.sh` signs it,
@@ -825,7 +825,7 @@ separate from this device temporary-file policy.
 ### Where things get tested
 
 Run the macOS harness first. Use the simulator when useful for local UI work,
-and a running **vphone** (or another jailbroken device) for the real privileged
+and a running **vphone** (or another device running custom firmware) for the real privileged
 backend, entitlements, launchd and bootstrap layouts. Vphone testing uses the
 native socket by default, or SSH when explicitly authorized, and does not restart the VM. Install on a physical
 device only when its owner authorizes that target. Keep destructive test

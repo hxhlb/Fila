@@ -5,7 +5,7 @@ archive and the ordinary IPA. Versions remain in `Configuration/Version.xcconfig
 
 ## Prefixes and flavors
 
-`FLAVOR` picks the jailbreak layout the `.deb` is built for, and the prefix is
+`FLAVOR` picks the bootstrap layout the `.deb` is built for, and the prefix is
 the whole of the difference. `roothide` ships at rootful paths with an empty
 prefix, because roothide's own dpkg relocates them into the randomized
 bootstrap root; `rootless` ships everything under `/var/jb`, the fixed prefix
@@ -51,8 +51,8 @@ the installed LaunchDaemon plist: a maintainer script that installs cleanly
 and boots nothing looks exactly like a daemon that has not spawned yet.
 
 The plist ships `@PREFIX@/usr/libexec/filad` — a rootful path on roothide,
-never an absolute jbroot path. roothide renames the jbroot at every
-re-jailbreak and its launchctl rewrites the plists under
+never an absolute jbroot path. roothide renames the jbroot every time
+the custom firmware is reapplied, and its launchctl rewrites the plists under
 `Library/LaunchDaemons` to match; a rootful path loaded by the bootstrap's own
 launchctl is what survives that.
 

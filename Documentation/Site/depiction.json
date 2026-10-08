@@ -78,7 +78,7 @@
                 },
                 {
                     "class": "DepictionMarkdownView",
-                    "markdown": "- Fila stays in portrait on iPhone. iPad still rotates freely.\n- The Cancel button on a progress card is now a filled button, like the single button on other alerts, and dims when the work cannot be stopped part-way.\n- On a jailbreak whose bootstrap has its own `mobile` folder, the sidebar lists both: Mobile (System) and Mobile (Bootstrap).\n\nIncludes RootHide and rootless Debian packages, TrollStore TIPA, standard IPA, and SHA-256 checksums.\n"
+                    "markdown": "- Fila stays in portrait on iPhone. iPad still rotates freely.\n- The Cancel button on a progress card is now a filled button, like the single button on other alerts, and dims when the work cannot be stopped part-way.\n- When the bootstrap has its own `mobile` folder, the sidebar lists both: Mobile (System) and Mobile (Bootstrap).\n\nIncludes RootHide and rootless Debian packages, TrollStore TIPA, standard IPA, and SHA-256 checksums.\n"
                 },
                 {
                     "class": "DepictionSeparatorView"
@@ -494,7 +494,7 @@
                 },
                 {
                     "class": "DepictionMarkdownView",
-                    "markdown": "Fila file manager for iOS. Includes RootHide and rootless Debian packages,\na TrollStore TIPA, and a standard IPA with its App Group entitlement.\n\nNative app and daemon retain physical filesystem paths. Destructive\noperations are protected by FilaGuard on both jailbreak layouts. RootHide device\nvalidation remains pending; CI verifies builds, host tests and archives.\n"
+                    "markdown": "Fila file manager for iOS. Includes RootHide and rootless Debian packages,\na TrollStore TIPA, and a standard IPA with its App Group entitlement.\n\nNative app and daemon retain physical filesystem paths. Destructive\noperations are protected by FilaGuard on both bootstrap layouts. RootHide device\nvalidation remains pending; CI verifies builds, host tests and archives.\n"
                 },
                 {
                     "class": "DepictionSeparatorView"
@@ -520,7 +520,7 @@
                 },
                 {
                     "class": "DepictionMarkdownView",
-                    "markdown": "Fila file manager for iOS. Includes RootHide and rootless Debian packages,\na TrollStore TIPA, and a standard IPA with its App Group entitlement.\n\nNative app and daemon retain physical filesystem paths. Destructive\noperations are protected by FilaGuard on both jailbreak layouts. RootHide device\nvalidation remains pending; CI verifies builds, host tests and archives.\n"
+                    "markdown": "Fila file manager for iOS. Includes RootHide and rootless Debian packages,\na TrollStore TIPA, and a standard IPA with its App Group entitlement.\n\nNative app and daemon retain physical filesystem paths. Destructive\noperations are protected by FilaGuard on both bootstrap layouts. RootHide device\nvalidation remains pending; CI verifies builds, host tests and archives.\n"
                 },
                 {
                     "class": "DepictionSeparatorView"
@@ -546,7 +546,7 @@
                 },
                 {
                     "class": "DepictionMarkdownView",
-                    "markdown": "Fila file manager for iOS. Includes RootHide and rootless Debian packages,\na TrollStore TIPA, and a standard IPA with its App Group entitlement.\n\nNative app and daemon retain physical filesystem paths. Destructive\noperations are protected by FilaGuard on both jailbreak layouts. RootHide device\nvalidation remains pending; CI verifies builds, host tests and archives.\n"
+                    "markdown": "Fila file manager for iOS. Includes RootHide and rootless Debian packages,\na TrollStore TIPA, and a standard IPA with its App Group entitlement.\n\nNative app and daemon retain physical filesystem paths. Destructive\noperations are protected by FilaGuard on both bootstrap layouts. RootHide device\nvalidation remains pending; CI verifies builds, host tests and archives.\n"
                 },
                 {
                     "class": "DepictionSeparatorView"
@@ -572,7 +572,7 @@
                 },
                 {
                     "class": "DepictionMarkdownView",
-                    "markdown": "Fila file manager for iOS. Includes RootHide and rootless Debian packages,\na TrollStore TIPA, and a standard IPA with its App Group entitlement.\n\nNative app and daemon retain physical filesystem paths. Destructive\noperations are protected by FilaGuard on both jailbreak layouts. RootHide device\nvalidation remains pending; CI verifies builds, host tests and archives.\n"
+                    "markdown": "Fila file manager for iOS. Includes RootHide and rootless Debian packages,\na TrollStore TIPA, and a standard IPA with its App Group entitlement.\n\nNative app and daemon retain physical filesystem paths. Destructive\noperations are protected by FilaGuard on both bootstrap layouts. RootHide device\nvalidation remains pending; CI verifies builds, host tests and archives.\n"
                 },
                 {
                     "class": "DepictionSeparatorView"
@@ -598,7 +598,7 @@
                 },
                 {
                     "class": "DepictionMarkdownView",
-                    "markdown": "Fila file manager for iOS. Includes RootHide and rootless Debian packages,\na TrollStore TIPA, and a standard IPA with its App Group entitlement.\n\nNative app and daemon retain physical filesystem paths. Destructive\noperations are protected by FilaGuard on both jailbreak layouts. RootHide device\nvalidation remains pending; CI verifies builds, host tests and archives.\n"
+                    "markdown": "Fila file manager for iOS. Includes RootHide and rootless Debian packages,\na TrollStore TIPA, and a standard IPA with its App Group entitlement.\n\nNative app and daemon retain physical filesystem paths. Destructive\noperations are protected by FilaGuard on both bootstrap layouts. RootHide device\nvalidation remains pending; CI verifies builds, host tests and archives.\n"
                 },
                 {
                     "class": "DepictionSeparatorView"
@@ -650,7 +650,7 @@
                 },
                 {
                     "class": "DepictionMarkdownView",
-                    "markdown": "Fila file manager for iOS. Includes RootHide and rootless Debian packages,\na TrollStore TIPA, and a standard IPA with its App Group entitlement.\n\nNative app and daemon retain physical filesystem paths. Destructive\noperations are protected by FilaGuard on both jailbreak layouts. RootHide device\nvalidation remains pending; CI verifies builds, host tests and archives.\n"
+                    "markdown": "Fila file manager for iOS. Includes RootHide and rootless Debian packages,\na TrollStore TIPA, and a standard IPA with its App Group entitlement.\n\nNative app and daemon retain physical filesystem paths. Destructive\noperations are protected by FilaGuard on both bootstrap layouts. RootHide device\nvalidation remains pending; CI verifies builds, host tests and archives.\n"
                 },
                 {
                     "class": "DepictionSeparatorView"

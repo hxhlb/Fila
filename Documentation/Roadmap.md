@@ -143,7 +143,7 @@ it:**
    `IXErrorDomain 1 "Failed to create temporary staging directory"` (underlying
    `NSCocoaError 4097`, the refused connection). That is what Fila got until
    the deb gained the entitlement; it is honoured when fake-signed with `ldid`
-   on this jailbreak, so `Packaging/Fila.entitlements` now carries it. It lets
+   on this custom firmware, so `Packaging/Fila.entitlements` now carries it. It lets
    Fila *talk* to the installer — nothing more. **Uninstall is gated by a
    second one, `com.apple.private.InstallCoordination.uninstall`**: without it
    the daemon answers `IXErrorDomain 25 "Client … is missing entitlement
@@ -168,7 +168,7 @@ it:**
 
 **Verdict.** InstallCoordination is the correct, supported transport on iOS
 16+ and Fila can now reach it; **installing an arbitrary IPA stays blocked on
-a stock jailbreak without AppSync Unified or a trustcache**. The one route
+stock custom firmware without AppSync Unified or a trustcache**. The one route
 that does install here is TrollStore Lite's helper (ldid `custom_trust`
 fake-sign, `MCMAppContainer`, `registerApplicationDictionary:` — a signing and
 container-registration pipeline that bypasses installd, already on the

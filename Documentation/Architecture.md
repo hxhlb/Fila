@@ -4,7 +4,7 @@
 
 SpringBoard launches every app as `mobile`. No entitlement changes that, so an
 app cannot read `/private/var/root` or write `/System` no matter how it is
-signed. Root access on a jailbroken device means a separate root process, and
+signed. Root access on a device running custom firmware means a separate root process, and
 the only sane channel to one is XPC — which carries an audit token the kernel
 fills in, so the daemon can decide who is asking without trusting anything the
 caller said.
@@ -27,7 +27,7 @@ to launchd is exactly what "nothing outlives the app that asked for it" is
 meant to prevent.
 
 When the daemon is absent, `FileSession.ready()` retries the Mach lookup
-once a second, forever — on a jailbroken device a miss means launchd has not
+once a second, forever — on custom firmware a miss means launchd has not
 spawned `filad` yet. A build that shipped no daemon settles instead on the
 in-process backend; see *Single-process mode* below.
 
@@ -128,7 +128,7 @@ Refusing whole subtrees would make the app useless — editing files under
 `/System` and `/var/mobile` is why it exists. Refusing nothing makes one
 mistyped gesture unrecoverable. The list covers the volume root, the classic
 system directories, the container roots, and — resolved at runtime, never
-hardcoded — the jailbreak bootstrap root, whose loss takes the jailbreak and
+hardcoded — the bootstrap root, whose loss takes the bootstrap and
 Fila with it.
 
 Two properties matter more than the list:
@@ -202,7 +202,7 @@ run on a Mac and must not be able to delete the host's own roots.
 
 ## Single-process mode
 
-The XPC daemon is the jailbreak architecture. The same binary also has to run
+The XPC daemon is the custom-firmware architecture. The same binary also has to run
 where there is no daemon and never will be: the TrollStore `.tipa`, the
 sideloaded `.ipa`, the simulator, and a copy hosted inside a LiveContainer-style
 app — an app running inside *another* app's sandbox. That last environment
@@ -301,7 +301,7 @@ handshake says is available is offered.
 **What must not happen.** No build flag or per-packaging source variant to
 tell the environments apart. No fake daemon in the app. No *Connecting…*
 forever in a build with no daemon — the grace period ends it. No failure
-screen for a missing daemon on a jailbroken device. No feature that fails by
+screen for a missing daemon on a device running custom firmware. No feature that fails by
 taking the shell down with it: a private call that returns nothing falls back
 (`ApplicationCatalog.load` → bundle scan → empty page that says so).
 
@@ -514,6 +514,6 @@ does not by itself mean SMB was exercised. impacket's
 privileges; the share must be writable, because `SMBLiveWritingTests` writes
 through it and reads the result back off disk.
 
-A jailbroken device or VM is where the privileged half is proved: XPC,
+A device or VM running custom firmware is where the privileged half is proved: XPC,
 entitlements, launchd, and the bootstrap layouts. The in-process backend
 covers the shell, not that path.
